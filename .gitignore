@@ -2,3 +2,26 @@
 .env
 credentials.json
 token.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+logs/
+*.log
+
+# Test/debug files
+test_*.py
+trace.txt
+output*.json
+test_*.json
+
+# Large data files
+*.pkl
+
+# OS files
+.DS_Store
+Thumbs.db
