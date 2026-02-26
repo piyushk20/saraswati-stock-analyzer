@@ -36,8 +36,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost",
+        "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1",
+        "http://127.0.0.1:3000",
         "http://127.0.0.1:8000",
         "null",          # Browsers send 'null' origin for file:// pages
         "file://"        # Required by some browsers for local file access
