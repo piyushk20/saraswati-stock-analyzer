@@ -150,13 +150,25 @@ def analyze(symbol: str) -> dict:
         ma50 = round(float(closes.rolling(50).mean().iloc[-1]), 2) if len(closes) >= 50 else None
         ma200 = round(float(closes.rolling(200).mean().iloc[-1]), 2) if len(closes) >= 200 else None
 
-        # Fetch 2 years for 200 MA if needed
-        if ma200 is None:
-            hist_2y = ticker.history(period="2y")
-            if not hist_2y.empty:
-                ma200 = round(float(hist_2y["Close"].rolling(200).mean().iloc[-1]), 2)
+        # Fetch 2 years history to ensure enough data for Monthly RSI (needs at least 15 months)
+        hist_2y = ticker.history(period="2y")
+        if ma200 is None and not hist_2y.empty:
+            ma200 = round(float(hist_2y["Close"].rolling(200).mean().iloc[-1]), 2)
+            
+        # Calculate Multi-Timeframe RSI
+        rsi_daily = calculate_rsi(closes)
+        
+        rsi_weekly = None
+        rsi_monthly = None
+        if not hist_2y.empty:
+            # Resample to weekly
+            weekly_closes = hist_2y["Close"].resample("W").last().dropna()
+            rsi_weekly = calculate_rsi(weekly_closes)
+            
+            # Resample to monthly
+            monthly_closes = hist_2y["Close"].resample("M").last().dropna()
+            rsi_monthly = calculate_rsi(monthly_closes)
 
-        rsi = calculate_rsi(closes)
         macd_val, macd_signal = calculate_macd(closes)
 
         # Pivot Points (Support/Resistance based on previous day's high/low/close)
@@ -200,8 +212,7 @@ def analyze(symbol: str) -> dict:
             options_data = get_angel_option_chain(symbol, is_index)
         except Exception as e:
             # Option chain might not be available
-            import traceback
-            print(f"Option Chain Error: {e}\n{traceback.format_exc()}")
+            logger.error("Option Chain Error for %s: %s", symbol, e)
 
         # Historical chart data (last 180 days for the chart)
         chart_hist = hist.iloc[-180:]
@@ -231,7 +242,9 @@ def analyze(symbol: str) -> dict:
             "sma_20": ma20,
             "sma_50": ma50,
             "sma_200": ma200,
-            "rsi_14": rsi,
+            "rsi_14": rsi_daily,
+            "rsi_weekly": rsi_weekly,
+            "rsi_monthly": rsi_monthly,
             "macd": macd_val,
             "macd_signal": macd_signal,
             "pivot_points": {
@@ -258,6 +271,12 @@ def analyze(symbol: str) -> dict:
                 "closes": chart_closes,
                 "volumes": chart_volumes,
             },
+            "performance": [
+                {"period": "1D", "pct": round(float(change_1d_pct), 2)},
+                {"period": "1W", "pct": round(float(change_1w_pct), 2)},
+                {"period": "1M", "pct": round(float(change_1m_pct), 2)},
+                {"period": "1Y", "pct": round(float(change_1y_pct), 2)},
+            ],
             "error": None,
         }
 
@@ -281,8 +300,10 @@ def analyze(symbol: str) -> dict:
             if bs is not None and not bs.empty:
                 b_doc = bs.iloc[:, 0]
                 b_assets = safe_get(b_doc, "Total Assets")
-                b_liabilities = safe_get(b_doc, "Total Liabilities Net Minority Interest")
-                b_equity = safe_get(b_doc, "Stockholders Equity")
+                b_liabilities = (safe_get(b_doc, "Total Liabilities Net Minority Interest") or 
+                                safe_get(b_doc, "Total Liabilities"))
+                b_equity = (safe_get(b_doc, "Stockholders Equity") or 
+                            safe_get(b_doc, "Total Equity Gross Minority Interest"))
                 b_debt = safe_get(b_doc, "Total Debt")
 
             c_operating = None; c_investing = None; c_financing = None; c_fcf = None
@@ -293,6 +314,14 @@ def analyze(symbol: str) -> dict:
                 c_financing = safe_get(cf_doc, "Financing Cash Flow")
                 c_fcf = safe_get(cf_doc, "Free Cash Flow")
 
+            # Fallback for ROE if missing in info
+            roe = safe_get(info, "returnOnEquity")
+            if roe is None and f_net_income and b_equity:
+                try:
+                    roe = float(f_net_income) / float(b_equity)
+                except (ZeroDivisionError, TypeError, ValueError):
+                    roe = None
+
             result.update({
                 "market_cap": safe_get(info, "marketCap"),
                 "pe_ratio": safe_get(info, "trailingPE"),
@@ -302,7 +331,7 @@ def analyze(symbol: str) -> dict:
                 "beta": safe_get(info, "beta"),
                 "book_value": safe_get(info, "bookValue"),
                 "price_to_book": safe_get(info, "priceToBook"),
-                "roe": safe_get(info, "returnOnEquity"),
+                "roe": roe,
                 "debt_to_equity": safe_get(info, "debtToEquity"),
                 "sector": safe_get(info, "sector"),
                 "industry": safe_get(info, "industry"),

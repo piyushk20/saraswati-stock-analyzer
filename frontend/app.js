@@ -1,7 +1,7 @@
 // app.js
 
-const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-const API_BASE = isLocalhost ? "http://localhost:8000/api/analyze" : "/api/analyze";
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+const API_BASE = isLocal ? "http://localhost:8000/api/analyze" : "/api/analyze";
 
 let chartInstance = null;
 
@@ -47,15 +47,16 @@ function renderDashboard(data) {
   const change = currentPrice - previousClose;
   const changePct = previousClose ? (change / previousClose * 100) : 0;
   
-  document.getElementById("heroPrice").innerHTML = fmt(currentPrice);
+  document.getElementById("heroPrice").textContent = fmt(currentPrice);
   
   const changeEl = document.getElementById("heroChange");
   changeEl.className = `hero-change ${change >= 0 ? "up" : "down"}`;
-  changeEl.innerHTML = `${change >= 0 ? "▲" : "▼"} ${fmtChange(change)} (${fmtPct(changePct)})`;
+  changeEl.textContent = `${change >= 0 ? "▲" : "▼"} ${fmtChange(change)} (${fmtPct(changePct)})`;
   
   renderChart(data);
   renderMetrics(data);
   renderTechGrid(data);
+  renderMultiRSI(data);
   renderFinancials(data);
   renderFundamentals(data);
   renderPivotGrid(data);
@@ -182,12 +183,23 @@ function renderMetrics(data) {
   }
 
   const grid = document.getElementById("metricsBar");
-  grid.innerHTML = metrics.map(m =>
-    `<div class="metric-card">
-      <div class="metric-label">${sanitize(m.label)}</div>
-      <div class="metric-value ${m.klass || ""}">${sanitize(m.value.replace(/^₹/, ""))}</div>
-    </div>`
-  ).join("");
+  grid.innerHTML = ""; // Clear existing
+  metrics.forEach(m => {
+    const card = document.createElement("div");
+    card.className = "metric-card";
+    
+    const label = document.createElement("div");
+    label.className = "metric-label";
+    label.textContent = m.label;
+    
+    const value = document.createElement("div");
+    value.className = `metric-value ${m.klass || ""}`;
+    value.textContent = m.value.replace(/^₹/, "");
+    
+    card.appendChild(label);
+    card.appendChild(value);
+    grid.appendChild(card);
+  });
 }
 
 function renderTechGrid(data) {
@@ -289,6 +301,40 @@ function renderFinancials(data) {
       <div class="data-value ${item.highlight || ""}">${sanitize(item.value)}</div>
     </div>`
   ).join("");
+}
+
+function renderMultiRSI(data) {
+  const box = document.getElementById("rsiGridBox");
+  if (data.rsi_14 === undefined && data.rsi_weekly === undefined && data.rsi_monthly === undefined) {
+    box.style.display = "none";
+    return;
+  }
+  box.style.display = "block";
+
+  const renderCard = (elementId, title, rsiValue) => {
+    let rsiColor = "var(--text-main)", rsiSignal = "NEUTRAL", rsiClass = "neutral";
+    if (rsiValue !== null && rsiValue !== undefined) {
+      if (rsiValue > 70) { rsiColor = "var(--negative)"; rsiSignal = "OVERBOUGHT"; rsiClass = "bearish"; }
+      else if (rsiValue < 30) { rsiColor = "var(--positive)"; rsiSignal = "OVERSOLD"; rsiClass = "bullish"; }
+    }
+    const rsiFillPct = (rsiValue !== null && rsiValue !== undefined) ? Math.min(Math.max(rsiValue, 0), 100) : 50;
+
+    const el = document.getElementById(elementId);
+    if(el) {
+      el.innerHTML = `
+        <div class="indicator-label">${sanitize(title)}</div>
+        <div class="indicator-val-primary" style="color:${sanitize(rsiColor)}">${(rsiValue !== null && rsiValue !== undefined) ? rsiValue.toFixed(1) : "N/A"}</div>
+        <div class="rsi-track">
+          <div class="rsi-fill" style="width:${rsiFillPct}%; background:${sanitize(rsiColor)}"></div>
+        </div>
+        <div class="signal-badge ${sanitize(rsiClass)}">${sanitize(rsiSignal)}</div>
+      `;
+    }
+  };
+
+  renderCard("rsiDailyCard", "Daily RSI", data.rsi_14);
+  renderCard("rsiWeeklyCard", "Weekly RSI", data.rsi_weekly);
+  renderCard("rsiMonthlyCard", "Monthly RSI", data.rsi_monthly);
 }
 
 function renderFundamentals(data) {
@@ -434,19 +480,35 @@ function renderOptionsData(data) {
 
 function renderPerformance(data) {
   const perfs = data.performance || [];
-  if (!perfs.length) return;
+  const grid = document.getElementById("perfGrid");
+  grid.innerHTML = "";
+  
+  if (!perfs.length) {
+      grid.innerHTML = `<div style="color: var(--text-dim);">No performance data available.</div>`;
+      return;
+  }
 
-  document.getElementById("perfGrid").innerHTML = perfs.map(p => {
+  perfs.forEach(p => {
     const up = p.pct >= 0;
     const pctDisplay = p.pct !== null && p.pct !== undefined
       ? `${up ? "+" : ""}${Number(p.pct).toFixed(2)}%`
       : "N/A";
     
-    return `<div class="perf-block">
-      <div class="perf-period">${sanitize(p.period)}</div>
-      <div class="perf-pct ${up ? "up" : "down"}">${pctDisplay}</div>
-    </div>`;
-  }).join("");
+    const block = document.createElement("div");
+    block.className = "perf-block";
+    
+    const period = document.createElement("div");
+    period.className = "perf-period";
+    period.textContent = p.period;
+    
+    const pct = document.createElement("div");
+    pct.className = `perf-pct ${up ? "up" : "down"}`;
+    pct.textContent = pctDisplay;
+    
+    block.appendChild(period);
+    block.appendChild(pct);
+    grid.appendChild(block);
+  });
 }
 
 // ============================================================

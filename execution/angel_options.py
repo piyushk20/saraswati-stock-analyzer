@@ -117,6 +117,6 @@ def get_angel_option_chain(symbol, is_index=False):
                     }
                     
     except Exception as e:
-        print("Angel One Fetch Error:", e)
+        logging.getLogger("angel_options").error("Angel One Fetch Error: %s", e)
 
     return options_data

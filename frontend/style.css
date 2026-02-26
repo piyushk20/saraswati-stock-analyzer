@@ -91,7 +91,6 @@ h1, h2, h3, h4 {
 
 /* App Container */
 .app-container {
-  max-w-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
   max-width: 1400px;
@@ -112,6 +111,7 @@ header {
   font-weight: 700;
   background: linear-gradient(135deg, var(--text-main) 0%, var(--accent-cyan) 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   display: flex;
   align-items: center;
@@ -314,6 +314,7 @@ header {
   margin-bottom: 1rem;
   background: linear-gradient(90deg, #fff, var(--text-muted));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -359,6 +360,13 @@ header {
 }
 
 /* Signals */
+.signals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
 .signal-badge {
   font-size: 0.75rem;
   padding: 0.2rem 0.6rem;
