@@ -35,10 +35,14 @@ app = FastAPI(title="Indian Stock Analyzer API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost",
         "http://localhost:8000",
+        "http://127.0.0.1",
         "http://127.0.0.1:8000",
         "null",          # Browsers send 'null' origin for file:// pages
+        "file://"        # Required by some browsers for local file access
     ],
+    allow_credentials=True,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
