@@ -17,11 +17,8 @@ Run with:
 """
 
 import collections
-import json
 import logging
 import re
-import subprocess
-import sys
 import time
 from pathlib import Path
 
