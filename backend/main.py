@@ -22,8 +22,18 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
+import os
+
+API_KEY = os.environ.get("API_KEY", "saraswati-secret-key-2026")
+api_key_header = APIKeyHeader(name="X-API-Key")
+
+def verify_api_key(api_key: str = Depends(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Could not validate API key")
+    return api_key
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -95,7 +105,7 @@ SCRIPT_PATH = Path(__file__).parent.parent / "execution" / "analyze_stock.py"
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/api/analyze/{symbol:path}")
-async def analyze_stock(symbol: str, request: Request):
+async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(verify_api_key)):
     """
     Analyze an Indian stock or index by its yfinance-compatible symbol.
     e.g. /api/analyze/RELIANCE.NS or /api/analyze/%5ENSEI
@@ -138,5 +148,5 @@ async def analyze_stock(symbol: str, request: Request):
 
 
 @app.get("/health")
-async def health():
+async def health(api_key: str = Depends(verify_api_key)):
     return {"status": "ok", "version": "1.1.0"}

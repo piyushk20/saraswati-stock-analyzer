@@ -35,17 +35,17 @@ def get_angel_option_chain(symbol, is_index=False):
         smartApi = SmartConnect(api_key=API_KEY)
         smartApi.generateSession(CLIENT_CODE, PASSWORD, pyotp.TOTP(TOTP_SECRET).now())
         
-        master_file = os.path.join(os.path.dirname(__file__), "OpenAPIScripMaster.pkl")
+        master_file = os.path.join(os.path.dirname(__file__), "OpenAPIScripMaster.json_cache")
         if os.path.exists(master_file):
-            with open(master_file, "rb") as f:
-                instrument_list = pickle.load(f)
+            with open(master_file, "r") as f:
+                instrument_list = json.load(f)
         else:
             inst_url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
             req = urllib.request.Request(inst_url)
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req) as response:  # nosec B310
                 instrument_list = json.loads(response.read().decode())
-                with open(master_file, "wb") as f:
-                    pickle.dump(instrument_list, f)
+                with open(master_file, "w") as f:
+                    json.dump(instrument_list, f)
 
         # Filter option contracts for this symbol
         options = [x for x in instrument_list if x['name'] == search_name and x['exch_seg'] == 'NFO' and x['instrumenttype'] in ('OPTIDX', 'OPTSTK')]

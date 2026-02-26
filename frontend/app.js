@@ -1,8 +1,8 @@
 // app.js
 
-// Always use localhost:8000 when running the frontend locally, otherwise use relative path for production
+// Always use localhost:8080 when running the frontend locally, otherwise use relative path for production
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-const API_BASE = isLocal ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
+const API_BASE = isLocal ? "http://127.0.0.1:8080/api/analyze" : "/api/analyze";
 
 let chartInstance = null;
 
@@ -18,7 +18,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("dashboardEl").style.display = "none";
     
     try {
-      const resp = await fetch(`${API_BASE}/${encodeURIComponent(symbol)}`);
+      const resp = await fetch(`${API_BASE}/${encodeURIComponent(symbol)}`, {
+        headers: {
+          "X-API-Key": "saraswati-secret-key-2026"
+        }
+      });
       const data = await resp.json();
       
       if (!resp.ok) {
