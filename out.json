@@ -1,0 +1,90 @@
+{
+  "indices": [
+    {
+      "symbol": "^NSEI",
+      "name": "NIFTY 50",
+      "price": 25272.25,
+      "change_pct": -0.88,
+      "high": 25476.4,
+      "low": 25270.05
+    },
+    {
+      "symbol": "^BSESN",
+      "name": "SENSEX",
+      "price": 81690.18,
+      "change_pct": -0.68,
+      "high": 82246.17,
+      "low": 81620.67
+    },
+    {
+      "symbol": "^NSEBANK",
+      "name": "NIFTY BANK",
+      "price": 60682.9,
+      "change_pct": -0.83,
+      "high": 61086.45,
+      "low": 60633.6
+    },
+    {
+      "symbol": "^CNXIT",
+      "name": "NIFTY IT",
+      "price": 30708.05,
+      "change_pct": 0.5,
+      "high": 31305.8,
+      "low": 30697.55
+    }
+  ],
+  "top_gainers": [
+    {
+      "symbol": "INFY.NS",
+      "change_pct": 1.28,
+      "price": 1305.6
+    },
+    {
+      "symbol": "HCLTECH.NS",
+      "change_pct": 1.11,
+      "price": 1388.7
+    },
+    {
+      "symbol": "HINDZINC.NS",
+      "change_pct": 0.72,
+      "price": 614.2
+    },
+    {
+      "symbol": "IOC.NS",
+      "change_pct": 0.53,
+      "price": 187.46
+    },
+    {
+      "symbol": "APOLLOHOSP.NS",
+      "change_pct": 0.49,
+      "price": 7813.0
+    }
+  ],
+  "top_losers": [
+    {
+      "symbol": "DRREDDY.NS",
+      "change_pct": -2.98,
+      "price": 1280.0
+    },
+    {
+      "symbol": "BHARTIARTL.NS",
+      "change_pct": -2.72,
+      "price": 1877.2
+    },
+    {
+      "symbol": "GRASIM.NS",
+      "change_pct": -2.5,
+      "price": 2791.8
+    },
+    {
+      "symbol": "HDFCLIFE.NS",
+      "change_pct": -2.32,
+      "price": 717.0
+    },
+    {
+      "symbol": "INDIGO.NS",
+      "change_pct": -2.28,
+      "price": 4820.8
+    }
+  ]
+}

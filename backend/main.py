@@ -21,6 +21,18 @@ import logging
 import re
 import time
 from pathlib import Path
+from datetime import datetime, timedelta
+
+# Simple in-memory cache for screener results to prevent API spam
+screener_cache = {
+    "data": None,
+    "expires_at": datetime.min
+}
+market_overview_cache = {
+    "data": None,
+    "expires_at": datetime.min
+}
+
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,7 +158,155 @@ async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(ve
         logger.error("Failed to execute analysis for symbol=%s: %s", symbol, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to run analysis.")
 
+@app.get("/api/screener/crossovers")
+async def get_screener_crossovers(request: Request, api_key: str = Depends(verify_api_key)):
+    """
+    Returns recent Golden/Death crosses for top Indian stocks and indices.
+    Results are cached in-memory for 1 hour to prevent API limits.
+    """
+    global screener_cache
+    
+    # Rate limit (reusing same rate limiter)
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    
+    # Return cached data if valid
+    if datetime.now() < screener_cache["expires_at"] and screener_cache["data"] is not None:
+        logger.info("Serving screener crossovers from cache")
+        return screener_cache["data"]
+        
+    try:
+        import sys
+        import os
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+            
+        from execution.screener import find_crossovers
+        
+        logger.info("Executing screener crossover scan (cache miss)")
+        data = find_crossovers()
+        
+        if data.get("error"):
+            raise HTTPException(status_code=500, detail=data["error"])
+            
+        # Update cache (1 hour expiry)
+        screener_cache["data"] = data
+        screener_cache["expires_at"] = datetime.now() + timedelta(hours=1)
+        
+        return data
+
+    except Exception as e:
+        logger.error("Failed to execute screener scan: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to run screener scan.")
+
+@app.get("/api/market/overview")
+async def get_market_overview(request: Request, api_key: str = Depends(verify_api_key)):
+    """
+    Returns market overview: major indices, top gainers, and top losers.
+    Results are cached in-memory for 5 minutes.
+    """
+    global market_overview_cache
+    
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    
+    if datetime.now() < market_overview_cache["expires_at"] and market_overview_cache["data"] is not None:
+        logger.info("Serving market overview from cache")
+        return market_overview_cache["data"]
+        
+    try:
+        import sys
+        import os
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+            
+        from execution.market_overview import fetch_market_overview
+        
+        logger.info("Executing market overview scan (cache miss)")
+        data = fetch_market_overview()
+        
+        if data.get("error"):
+            raise HTTPException(status_code=500, detail=data["error"])
+            
+        market_overview_cache["data"] = data
+        market_overview_cache["expires_at"] = datetime.now() + timedelta(minutes=5)
+        
+        return data
+
+    except Exception as e:
+        logger.error("Failed to execute market overview: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch market overview.")
+
+vcp_cache = {
+    "data": None,
+    "expires_at": datetime.now() - timedelta(minutes=1)
+}
+
+@app.get("/api/screener/vcp")
+async def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
+    """
+    Runs the Volatility Contraction Pattern (VCP) screener on NSE 500 stocks.
+    Results are cached in-memory for 1 hour since scanning 500 stocks is expensive.
+    """
+    global vcp_cache
+    
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    
+    # Return from cache if valid
+    if datetime.now() < vcp_cache["expires_at"] and vcp_cache["data"] is not None:
+        logger.info("Serving VCP screener from cache")
+        return vcp_cache["data"]
+        
+    try:
+        import sys
+        import os
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+            
+        from execution.vcp_screener import scan_vcp
+        
+        logger.info("Executing VCP screener scan (cache miss)")
+        data = scan_vcp()
+        
+        if data.get("error"):
+            raise HTTPException(status_code=500, detail=data["error"])
+            
+        # Update cache (1 hour expiry)
+        vcp_cache["data"] = data
+        vcp_cache["expires_at"] = datetime.now() + timedelta(hours=1)
+        
+        return data
+
+    except Exception as e:
+        logger.error("Failed to execute VCP screener scan: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to run VCP screener scan.")
+
+@app.get("/api/market/nse500")
+async def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
+    """Returns a list of NSE 500 symbols to populate UI dropdowns."""
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    try:
+        import sys
+        import os
+        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+            
+        from execution.vcp_screener import get_nse_500_symbols
+        symbols = get_nse_500_symbols()
+        return {"symbols": symbols}
+    except Exception as e:
+        logger.error("Failed to fetch NSE 500 list: %s", e, exc_info=True)
+        return {"symbols": ["RELIANCE.NS", "TCS.NS"]}
 
 @app.get("/health")
 async def health(api_key: str = Depends(verify_api_key)):
     return {"status": "ok", "version": "1.1.0"}
+@app.get("/ping")
+async def ping():
+    return {"ping": "pong"}

@@ -7,6 +7,16 @@ const API_BASE = isLocal ? "http://127.0.0.1:8080/api/analyze" : "/api/analyze";
 let chartInstance = null;
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Populate the dropdown with NSE 500 stocks
+  loadNse500Stocks();
+  
+  // Initiate the background fetch for the crossover screener
+  loadScreenerData();
+  // Initiate the background fetch for market overview
+  loadMarketOverview();
+  // Initiate the background fetch for VCP screener
+  loadVcpScreenerData();
+
   const stockSelector = document.getElementById("stockSelector");
   
   stockSelector.addEventListener("change", async (e) => {
@@ -16,6 +26,12 @@ document.addEventListener("DOMContentLoaded", () => {
     showOverlay("loadingOverlay");
     hideOverlay("errorOverlay");
     document.getElementById("dashboardEl").style.display = "none";
+    
+    // Hide initial dashboard and parts
+    const initialDashboard = document.getElementById("initialDashboard");
+    if (initialDashboard) initialDashboard.style.display = "none";
+    const screenerBox = document.getElementById("screenerBox");
+    if (screenerBox) screenerBox.style.display = "none";
     
     try {
       const resp = await fetch(`${API_BASE}/${encodeURIComponent(symbol)}`, {
@@ -35,7 +51,371 @@ document.addEventListener("DOMContentLoaded", () => {
       showError(err.message);
     }
   });
+
+  const backBtn = document.getElementById("backToDashboardBtn");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      stockSelector.value = ""; // Reset dropdown
+      document.getElementById("dashboardEl").style.display = "none";
+      const initialDashboard = document.getElementById("initialDashboard");
+      if (initialDashboard) initialDashboard.style.display = "flex";
+      
+      // Since screenerBox is inside initialDashboard now, it should display if the initialDashboard displays,
+      // but just in case we explicitly hid it before:
+      const screenerBox = document.getElementById("screenerBox");
+      if (screenerBox) screenerBox.style.display = "block";
+      
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
 });
+
+async function loadScreenerData() {
+  const tableBody = document.getElementById("screenerTableBody");
+  const screenerBox = document.getElementById("screenerBox");
+  
+  if (!tableBody || !screenerBox) return;
+  
+  try {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+    
+    // Try primary port 8080, fallback to 8000 if needed
+    const ports = isLocal ? ["8080", "8000"] : [null];
+    let data = null;
+    let success = false;
+
+    for (const port of ports) {
+      try {
+        const BASE = port ? `http://127.0.0.1:${port}/api/screener/crossovers` : "/api/screener/crossovers";
+        const resp = await fetch(BASE, {
+          headers: { "X-API-Key": "saraswati-secret-key-2026" }
+        });
+        if (resp.ok) {
+          data = await resp.json();
+          success = true;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch from port ${port}`, err);
+      }
+    }
+
+    if (!success) throw new Error("Could not reach backend on port 8080 or 8000");
+    
+    // Reveal the box only if no stock has been actively selected yet
+    const stockSelector = document.getElementById("stockSelector");
+    if (!stockSelector.value) {
+      screenerBox.style.display = "block";
+    }
+    
+    if (data.crossovers && data.crossovers.length > 0) {
+      tableBody.innerHTML = "";
+      
+      data.crossovers.forEach(item => {
+        const isGolden = item.type === "Golden Cross";
+        const cssClass = isGolden ? "cross-golden" : "cross-death";
+        
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${item.symbol.replace(/%5E/i, '^')}</strong></td>
+          <td class="${cssClass}">${item.type}</td>
+          <td style="font-family: var(--font-mono)">${item.price}</td>
+          <td>${item.date}</td>
+        `;
+        
+        tr.addEventListener("click", () => {
+          // Deep link / Auto-Select symbol logic
+          const select = document.getElementById("stockSelector");
+          
+          // For indexes or stocks not in the dropdown natively, 
+          // ensure the option exists or just set the value and trigger change
+          if (!Array.from(select.options).some(o => o.value === item.symbol)) {
+            const tempOpt = document.createElement("option");
+            tempOpt.value = item.symbol;
+            tempOpt.text = item.symbol;
+            select.add(tempOpt);
+          }
+          
+          select.value = item.symbol;
+          select.dispatchEvent(new Event('change'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        
+        tableBody.appendChild(tr);
+      });
+    } else {
+      tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;">No recent crossovers found.</td></tr>`;
+    }
+  } catch (e) {
+    console.error("Failed to fetch screener data", e);
+    const stockSelector = document.getElementById("stockSelector");
+    if (!stockSelector || !stockSelector.value) {
+      screenerBox.style.display = "block";
+    }
+    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--negative)">Failed to load screener data.</td></tr>`;
+  }
+}
+
+// -----------------------------------------------------------------
+// VCP SCREENER
+// -----------------------------------------------------------------
+async function loadVcpScreenerData() {
+  const vcpBody = document.getElementById("vcpScreenerBody");
+  if (!vcpBody) return;
+  
+  vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for VCP...</div></td></tr>`;
+  
+  try {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+    const ports = isLocal ? ["8080", "8000"] : [null];
+    let data = null;
+    let success = false;
+
+    for (const port of ports) {
+      try {
+        const BASE = port ? `http://127.0.0.1:${port}/api/screener/vcp` : "/api/screener/vcp";
+        const resp = await fetch(BASE, {
+          headers: { "X-API-Key": "saraswati-secret-key-2026" }
+        });
+        if (resp.ok) {
+          data = await resp.json();
+          success = true;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch vcp screener from port ${port}`, err);
+      }
+    }
+
+    if (!success) throw new Error("Could not fetch VCP screener data");
+
+    if (data.vcp_stocks && data.vcp_stocks.length > 0) {
+      vcpBody.innerHTML = "";
+      data.vcp_stocks.forEach(stock => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td><strong>${sanitize(stock.symbol)}</strong></td>
+          <td class="text-green">${fmt(stock.price)}</td>
+        `;
+        tr.addEventListener("click", () => {
+           const select = document.getElementById("stockSelector");
+           if (!Array.from(select.options).some(o => o.value === stock.symbol)) {
+             const tempOpt = document.createElement("option");
+             tempOpt.value = stock.symbol;
+             tempOpt.text = stock.symbol;
+             select.add(tempOpt);
+           }
+           select.value = stock.symbol;
+           select.dispatchEvent(new Event('change'));
+           window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        vcpBody.appendChild(tr);
+      });
+    } else {
+      vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;">No VCP patterns detected today</td></tr>`;
+    }
+
+  } catch (e) {
+    console.error("Failed to load VCP screener list", e);
+    vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--negative)">Failed to load VCP screener.</td></tr>`;
+  }
+}
+
+// -----------------------------------------------------------------
+// DROPDOWN LOAD
+// -----------------------------------------------------------------
+async function loadNse500Stocks() {
+  const stockSelector = document.getElementById("stockSelector");
+  if (!stockSelector) return;
+  
+  try {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+    const ports = isLocal ? ["8080", "8000"] : [null];
+    let data = null;
+    let success = false;
+
+    for (const port of ports) {
+      try {
+        const BASE = port ? `http://127.0.0.1:${port}/api/market/nse500` : "/api/market/nse500";
+        const resp = await fetch(BASE, {
+          headers: { "X-API-Key": "saraswati-secret-key-2026" }
+        });
+        if (resp.ok) {
+          data = await resp.json();
+          success = true;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch NSE 500 list from port ${port}`, err);
+      }
+    }
+
+    if (!success) throw new Error("Could not fetch NSE 500 list");
+    
+    // Clear existing options except the first placeholder
+    while (stockSelector.options.length > 1) {
+      stockSelector.remove(1);
+    }
+    
+    // Populate dropdown with fetched symbols
+    if (data && data.symbols) {
+      data.symbols.forEach(symbol => {
+         const option = document.createElement("option");
+         option.value = symbol;
+         option.text = symbol;
+         stockSelector.add(option);
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load NSE 500 stocks", e);
+  }
+}
+
+async function loadMarketOverview() {
+  try {
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+    const ports = isLocal ? ["8080", "8000"] : [null];
+    let data = null;
+    let success = false;
+
+    for (const port of ports) {
+      try {
+        const BASE = port ? `http://127.0.0.1:${port}/api/market/overview` : "/api/market/overview";
+        const resp = await fetch(BASE, {
+          headers: { "X-API-Key": "saraswati-secret-key-2026" }
+        });
+        if (resp.ok) {
+          data = await resp.json();
+          success = true;
+          break;
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch market overview from port ${port}`, err);
+      }
+    }
+
+    if (!success) throw new Error("Could not fetch market overview");
+
+    renderMarketOverview(data);
+  } catch (e) {
+    console.error("Failed to load market overview", e);
+    const indicesRow = document.getElementById("indicesRow");
+    if (indicesRow) {
+      indicesRow.innerHTML = `<div class="pulse-loader" style="color: var(--negative)">Failed to load market data.</div>`;
+    }
+  }
+}
+
+function renderMarketOverview(data) {
+  // Only show if no stock is selected
+  const stockSelector = document.getElementById("stockSelector");
+  if (!stockSelector || !stockSelector.value) {
+    const initialDashboard = document.getElementById("initialDashboard");
+    if (initialDashboard) initialDashboard.style.display = "flex";
+  }
+
+  // Render Indices
+  const indicesRow = document.getElementById("indicesRow");
+  if (data.indices && data.indices.length > 0 && indicesRow) {
+    indicesRow.innerHTML = "";
+    data.indices.forEach(idx => {
+      const isUp = idx.change_pct >= 0;
+      const changeClass = isUp ? "up" : "down";
+      const sign = isUp ? "+" : "";
+      
+      const card = document.createElement("div");
+      card.className = "index-card";
+      card.innerHTML = `
+        <div class="idx-name">${sanitize(idx.name)}</div>
+        <div class="idx-price-wrap">
+          <div class="idx-price">${fmt(idx.price)}</div>
+          <div class="idx-change ${changeClass}">${sign}${idx.change_pct.toFixed(2)}%</div>
+        </div>
+        <div class="idx-range">
+          <span>L: ${fmt(idx.low).replace(/₹/, '')}</span>
+          <span>H: ${fmt(idx.high).replace(/₹/, '')}</span>
+        </div>
+      `;
+      card.style.cursor = "pointer";
+      card.addEventListener("click", () => {
+         const select = document.getElementById("stockSelector");
+         if (!Array.from(select.options).some(o => o.value === idx.symbol)) {
+           const tempOpt = document.createElement("option");
+           tempOpt.value = idx.symbol;
+           tempOpt.text = idx.symbol;
+           select.add(tempOpt);
+         }
+         select.value = idx.symbol;
+         select.dispatchEvent(new Event('change'));
+         window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      indicesRow.appendChild(card);
+    });
+  } else if (indicesRow) {
+    indicesRow.innerHTML = `<div>No indices data available</div>`;
+  }
+
+  // Render Top Gainers
+  const gainersBody = document.getElementById("gainersTableBody");
+  if (data.top_gainers && data.top_gainers.length > 0 && gainersBody) {
+    gainersBody.innerHTML = "";
+    data.top_gainers.forEach(g => {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.innerHTML = `
+        <td><strong>${sanitize(g.symbol)}</strong></td>
+        <td>${fmt(g.price)}</td>
+        <td class="text-green">+${g.change_pct.toFixed(2)}%</td>
+      `;
+      tr.addEventListener("click", () => {
+         const select = document.getElementById("stockSelector");
+         if (!Array.from(select.options).some(o => o.value === g.symbol)) {
+           const tempOpt = document.createElement("option");
+           tempOpt.value = g.symbol;
+           tempOpt.text = g.symbol;
+           select.add(tempOpt);
+         }
+         select.value = g.symbol;
+         select.dispatchEvent(new Event('change'));
+         window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      gainersBody.appendChild(tr);
+    });
+  } else if (gainersBody) {
+    gainersBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">No gainers data available</td></tr>`;
+  }
+
+  // Render Top Losers
+  const losersBody = document.getElementById("losersTableBody");
+  if (data.top_losers && data.top_losers.length > 0 && losersBody) {
+    losersBody.innerHTML = "";
+    data.top_losers.forEach(l => {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.innerHTML = `
+        <td><strong>${sanitize(l.symbol)}</strong></td>
+        <td>${fmt(l.price)}</td>
+        <td class="text-red">${l.change_pct.toFixed(2)}%</td>
+      `;
+      tr.addEventListener("click", () => {
+         const select = document.getElementById("stockSelector");
+         if (!Array.from(select.options).some(o => o.value === l.symbol)) {
+           const tempOpt = document.createElement("option");
+           tempOpt.value = l.symbol;
+           tempOpt.text = l.symbol;
+           select.add(tempOpt);
+         }
+         select.value = l.symbol;
+         select.dispatchEvent(new Event('change'));
+         window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      losersBody.appendChild(tr);
+    });
+  } else if (losersBody) {
+    losersBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">No losers data available</td></tr>`;
+  }
+}
 
 function renderDashboard(data) {
   hideOverlay("loadingOverlay");
@@ -65,6 +445,7 @@ function renderDashboard(data) {
   renderFinancials(data);
   renderFundamentals(data);
   renderPivotGrid(data);
+  renderExtremes(data);
   renderRelativeStrength(data);
   renderOptionsData(data);
   renderPerformance(data);
@@ -406,6 +787,30 @@ function renderPivotGrid(data) {
   ).join("");
 }
 
+function renderExtremes(data) {
+  const box = document.getElementById("extremesBox");
+  if (!box) return;
+  box.style.display = "block";
+
+  const vcpStatus = data.vcp_matched ? "Matched" : "No Pattern";
+  const vcpClass = data.vcp_matched ? "text-up" : "text-dim";
+
+  const items = [
+    { label: "52-Week High", value: fmt(data.week_52_high), highlight: "" },
+    { label: "52-Week Low", value: fmt(data.week_52_low), highlight: "" },
+    { label: "All-Time High", value: fmt(data.all_time_high), highlight: "text-up" },
+    { label: "All-Time Low", value: fmt(data.all_time_low), highlight: "text-down" },
+    { label: "VCP Criteria", value: vcpStatus, highlight: vcpClass }
+  ];
+
+  document.getElementById("extremesGrid").innerHTML = items.map(item =>
+    `<div class="data-row">
+      <div class="data-label">${sanitize(item.label)}</div>
+      <div class="data-value ${item.highlight}">${sanitize(item.value)}</div>
+    </div>`
+  ).join("");
+}
+
 function renderRelativeStrength(data) {
   const box = document.getElementById("rsBox");
   if (!data.relative_strength) {
@@ -469,6 +874,11 @@ function renderOptionsData(data) {
       label: `${labelPrefix} (Puts Max OI Strike)`, 
       value: expData.max_put_oi_strike ? fmt(expData.max_put_oi_strike) : "N/A",
       highlight: "text-up" // Huge Put OI often acts as support
+    });
+    items.push({
+      label: `${labelPrefix} (Max Pain Area)`, 
+      value: expData.max_pain ? fmt(expData.max_pain) : "N/A",
+      highlight: ""
     });
   };
 

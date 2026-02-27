@@ -105,6 +105,36 @@ def get_angel_option_chain(symbol, is_index=False):
                         max_put_oi = oi
                         max_put_strike = strike
                 
+                # Calculate Max Pain
+                # Max Pain = Strike price where the sum of intrinsic value of all ITM options is minimized.
+                strikes = sorted(list(set(float(token_to_info[t]['strike'])/100 for t in token_to_info if token_to_info[t]['strike'].isnumeric())))
+                max_pain = 0
+                if strikes:
+                    min_pain_val = float('inf')
+                    for s in strikes:
+                        pain = 0
+                        for item in all_data:
+                            token = item.get('symbolToken')
+                            oi = item.get('opnInterest', 0)
+                            if not oi: continue
+                            info = token_to_info.get(token)
+                            if not info: continue
+                            
+                            strike_i = float(info['strike']) / 100
+                            opt_type = info['symbol'][-2:]
+                            
+                            # If expiry price is 's':
+                            # Calls with strike_i < s expire in the money. Value = s - strike_i
+                            if opt_type == 'CE' and strike_i < s:
+                                pain += (s - strike_i) * oi
+                            # Puts with strike_i > s expire in the money. Value = strike_i - s
+                            elif opt_type == 'PE' and strike_i > s:
+                                pain += (strike_i - s) * oi
+                                
+                        if pain < min_pain_val:
+                            min_pain_val = pain
+                            max_pain = s
+
                 if max_call_oi > 0 or max_put_oi > 0:
                     options_data[exp_key] = {
                         "expiry_date": exp_date,
@@ -112,6 +142,7 @@ def get_angel_option_chain(symbol, is_index=False):
                         "max_call_oi_vol": max_call_oi,
                         "max_put_oi_strike": max_put_strike,
                         "max_put_oi_vol": max_put_oi,
+                        "max_pain": max_pain,
                         "pcr": round(sum(i.get('opnInterest',0) for i in all_data if token_to_info.get(i.get('symbolToken'),{}).get('symbol', '')[-2:]=='PE') / 
                                      max(1, sum(i.get('opnInterest',0) for i in all_data if token_to_info.get(i.get('symbolToken'),{}).get('symbol', '')[-2:]=='CE')), 2)
                     }

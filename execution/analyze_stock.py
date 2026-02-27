@@ -15,11 +15,16 @@ Output:
 import argparse
 import json
 import sys
+import os
 import warnings
+
+# Ensure execution directory is in path for imports when called from backend
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from vcp_screener import filter_by_vcp_conditions
 
 warnings.filterwarnings("ignore")
 
@@ -160,6 +165,7 @@ def analyze(symbol: str) -> dict:
         
         rsi_weekly = None
         rsi_monthly = None
+        vcp_matched = False
         if not hist_2y.empty:
             # Resample to weekly
             weekly_closes = hist_2y["Close"].resample("W").last().dropna()
@@ -168,8 +174,25 @@ def analyze(symbol: str) -> dict:
             # Resample to monthly
             monthly_closes = hist_2y["Close"].resample("M").last().dropna()
             rsi_monthly = calculate_rsi(monthly_closes)
+            
+            # VCP Pattern Check
+            try:
+                vcp_df = filter_by_vcp_conditions(hist_2y.copy())
+                if 'Has_fulfilled' in vcp_df.columns and bool(vcp_df['Has_fulfilled'].iloc[-1]):
+                    vcp_matched = True
+            except Exception:
+                pass
 
         macd_val, macd_signal = calculate_macd(closes)
+        
+        # All Time High / Low
+        try:
+            hist_max = ticker.history(period="max")
+            all_time_high = round(float(hist_max["High"].max()), 2) if not hist_max.empty else None
+            all_time_low = round(float(hist_max["Low"].min()), 2) if not hist_max.empty else None
+        except Exception:
+            all_time_high = None
+            all_time_low = None
 
         # Pivot Points (Support/Resistance based on previous day's high/low/close)
         if len(hist) > 1:
@@ -232,6 +255,9 @@ def analyze(symbol: str) -> dict:
             "day_low": round(float(safe_get(info, "dayLow") or hist["Low"].iloc[-1]), 2),
             "week_52_high": round(float(safe_get(info, "fiftyTwoWeekHigh") or closes.max()), 2),
             "week_52_low": round(float(safe_get(info, "fiftyTwoWeekLow") or closes.min()), 2),
+            "all_time_high": all_time_high,
+            "all_time_low": all_time_low,
+            "vcp_matched": vcp_matched,
             "volume": int(safe_get(info, "volume") or hist["Volume"].iloc[-1] or 0),
             "avg_volume": int(safe_get(info, "averageVolume") or 0),
             "price_change_1d": round(float(change_1d), 2),

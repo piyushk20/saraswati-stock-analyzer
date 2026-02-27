@@ -253,7 +253,93 @@
       </div>
     </header>
 
-    <main id="dashboardEl" class="dashboard">
+    <!-- NEW INITIAL DASHBOARD -->
+    <div id="initialDashboard" class="initial-dashboard">
+      <div class="header-intro">
+        <h1 class="glow-title">Market Pulse</h1>
+        <p class="subtitle">Live insights, elite performance.</p>
+      </div>
+
+      <!-- Major Indices Row -->
+      <div class="market-overview-row" id="indicesRow">
+        <!-- Injected via JS -->
+        <div class="pulse-loader">Scanning Markets...</div>
+      </div>
+
+      <div class="market-tables-grid">
+        <!-- Top Gainers -->
+        <div class="glass-panel dynamic-card">
+          <h2 class="card-title text-green">Top Gainers</h2>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table">
+              <thead><tr><th>Symbol</th><th>Price</th><th>Change</th></tr></thead>
+              <tbody id="gainersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Top Losers -->
+        <div class="glass-panel dynamic-card">
+          <h2 class="card-title text-red">Top Losers</h2>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table">
+              <thead><tr><th>Symbol</th><th>Price</th><th>Change</th></tr></thead>
+              <tbody id="losersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="market-tables-grid" style="margin-top:20px;">
+        <!-- Market Screener (Golden/Death Crosses) -->
+        <div id="screenerBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title text-purple">Screener: 7-Day Crossovers</h2>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="screenerTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Cross</th>
+                  <th>Price</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="screenerTableBody">
+                <!-- Fetch injected here -->
+                <tr><td colspan="4" style="text-align:center;"><div class="pulse-loader">Scanning recent crossovers...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- VCP Pattern -->
+        <div id="vcpBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title text-cyan">Screener: VCP Pattern</h2>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="vcpTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Price</th>
+                </tr>
+              </thead>
+              <tbody id="vcpScreenerBody">
+                 <tr><td colspan="2" style="text-align:center;"><div class="pulse-loader">Scanning NSE 500 for VCP patterns...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- END INITIAL DASHBOARD -->
+
+    <!-- INDIVIDUAL STOCK DETAIL DASHBOARD -->
+    <main id="dashboardEl" class="dashboard" style="display: none;">
+
+      <!-- Back Button -->
+      <button id="backToDashboardBtn" class="glass-btn back-btn" style="margin-bottom: 20px;">
+        &larr; Back to Market Overview
+      </button>
 
       <div class="hero-section">
         <!-- Stock Title & Price Hero -->
@@ -311,6 +397,14 @@
         <div class="glass-panel bento-box" id="pivotBox">
           <h2 class="section-title">Key Levels (Daily Pivots)</h2>
           <div id="pivotGrid" class="data-grid">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+
+        <!-- Price Extremes & VCP -->
+        <div class="glass-panel bento-box" id="extremesBox">
+          <h2 class="section-title">Price Extremes & Patterns</h2>
+          <div id="extremesGrid" class="data-grid">
             <!-- Injected via JS -->
           </div>
         </div>
