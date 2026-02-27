@@ -88,7 +88,7 @@ def get_nse_500_symbols():
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=10)
         tables = pd.read_html(StringIO(res.text))
         for df in tables:
             if 'Symbol' in df.columns:
