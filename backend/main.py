@@ -40,11 +40,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 import os
 
+from dotenv import load_dotenv
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
 API_KEY = os.environ.get("API_KEY", "YOUR_SECURE_API_KEY_HERE")
 api_key_header = APIKeyHeader(name="X-API-Key")
 
 def verify_api_key(api_key: str = Depends(api_key_header)):
     if api_key != API_KEY:
+        logger.warning("API key validation failed: invalid key supplied")
         raise HTTPException(status_code=403, detail="Could not validate API key")
     return api_key
 

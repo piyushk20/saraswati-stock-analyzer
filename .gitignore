@@ -8,23 +8,80 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
-# Logs
+# Logs & reports
 logs/
 *.log
+bandit_report*.txt
+bandit_final_report.txt
+final_global_bandit_report.txt
+global_bandit_report.txt
+checklist_report.txt
+flake8_report.txt
+safety_report.txt
+rsi_test_result.txt
+server_debug.txt
+pytest_debug.txt
+pytest_detailed_report.txt
+uvicorn_err.txt
+verify.log
+backend_log.txt
 
-# Test/debug files
-test_*.py
-trace.txt
-output*.json
-test_*.json
+# Test / debug / temporary scripts
+debug_*.py
+capture_*.py
+check_*.py
+dump_*.py
+final_check.py
+robust_verify.py
+simple_check.py
+test_nse_v3.py
+test_nsepython.py
+test_yf_options.py
+test_multi_rsi.py
+verify_full_app.py
+tmp_debug_nse.py
 
-# Large data files
-*.pkl
+# Temporary output files
+analyze_response.txt
+api_test.txt
+resp.txt
+response.txt
+nse_test_output*.txt
+test_debug.txt
+test_logs*.txt
+test_out.txt
+out.json
+out_api.json
+out_reliance.json
+out_test.json
+fetch_result.json
+nsei_data.json
+tcs_data.json
+reliance_*.json
+audit_*.json
+temp_*.json
+test_index.json
+test_nifty.json
+test_oc.json
+test_options.json
+test_output.json
+test_resp.json
+test_tcs*.json
+
+# Screenshots and other media artefacts
+*.png
+dashboard_fixed.png
+stock_analysis_*.png
+test_err_state.png
+
+# Frontend config (has real API key — use config.example.js instead)
+frontend/config.js
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Frontend config missing API keys
-frontend/config.js
+# Large data files
+*.pkl
