@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 import os
 
-API_KEY = os.environ.get("API_KEY", "saraswati-secret-key-2026")
+API_KEY = os.environ.get("API_KEY", "YOUR_SECURE_API_KEY_HERE")
 api_key_header = APIKeyHeader(name="X-API-Key")
 
 def verify_api_key(api_key: str = Depends(api_key_header)):

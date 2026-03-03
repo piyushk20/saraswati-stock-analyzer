@@ -65,7 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const fetchUrl = `${baseUrl}/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
 
       const resp = await fetch(fetchUrl, {
-        headers: { "X-API-Key": "saraswati-secret-key-2026" },
+        headers: { "X-API-Key": window.CONFIG.API_KEY },
         cache: "no-store"
       });
       
@@ -114,7 +114,7 @@ async function loadScreenerData() {
     const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
     
@@ -190,7 +190,7 @@ async function loadVcpScreenerData() {
     const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
     
@@ -243,7 +243,7 @@ async function loadNse500Stocks() {
     const fetchUrl = `${BASE}?v=${new Date().getTime()}`; // Cache buster
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
     
@@ -279,7 +279,7 @@ async function loadMarketOverview() {
     const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
     

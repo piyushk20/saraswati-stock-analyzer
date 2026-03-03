@@ -25,3 +25,6 @@ test_*.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Frontend config missing API keys
+frontend/config.js

@@ -1,0 +1,3 @@
+window.CONFIG = {
+  API_KEY: "YOUR_SECURE_API_KEY_HERE"
+};
