@@ -1,0 +1,33 @@
+============================================================
+  Multi-Timeframe RSI Verification
+============================================================
+
+[OK] RELIANCE.NS ù Energy Large Cap
+  Price  : 1393.9
+  RSI Daily  : 34.25
+  RSI Weekly : 35.24
+  RSI Monthly: 59.63
+
+[OK] TCS.NS ù IT Large Cap
+  Price  : 2637.4
+  RSI Daily  : 24.04
+  RSI Weekly : 23.14
+  RSI Monthly: 22.82
+
+[OK] ^NSEI ù Nifty 50 Index
+  Price  : 25178.65
+  RSI Daily  : 34.49
+  RSI Weekly : 38.42
+  RSI Monthly: 58.71
+
+[OK] SBIN.NS ù PSU Bank
+  Price  : 1201.7
+  RSI Daily  : 67.75
+  RSI Weekly : 81.31
+  RSI Monthly: 81.14
+
+[ERROR] TATAMOTORS.NS ù Auto Large Cap: HTTP Error 404: Not Found
+
+============================================================
+  Overall result: FAIL ù Some RSI values missing
+============================================================

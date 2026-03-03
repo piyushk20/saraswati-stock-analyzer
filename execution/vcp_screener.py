@@ -61,44 +61,45 @@ def filter_by_vcp_conditions(df):
     return df[['Close','Has_fulfilled']]
 
 def get_nse_500_symbols():
-    fallback_universe = [
-        "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", 
-        "HINDUNILVR.NS", "SBI.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS",
-        "ASIANPAINT.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS", "TITAN.NS",
-        "ULTRACEMCO.NS", "TATASTEEL.NS", "NTPC.NS", "POWERGRID.NS", "ONGC.NS",
-        "M&M.NS", "KOTAKBANK.NS", "LT.NS", "WIPRO.NS", "AXISBANK.NS",
-        "BAJAJFINSV.NS", "NESTLEIND.NS", "JSWSTEEL.NS", "TECHM.NS", "HDFCLIFE.NS",
-        "TVSMOTOR.NS", "HINDALCO.NS", "GRASIM.NS", "CIPLA.NS", "HEROMOTOCO.NS",
-        "APOLLOHOSP.NS", "DIVISLAB.NS", "SBILIFE.NS", "TATAMOTORS.NS", "SHREECEM.NS",
-        "ADANIENT.NS", "ADANIPORTS.NS", "EICHERMOT.NS", "UPL.NS", "DRREDDY.NS",
-        "BRITANNIA.NS", "INDUSINDBK.NS", "COALINDIA.NS", "BPCL.NS", "RECLTD.NS",
-        "ZOMATO.NS", "TRENT.NS", "AARTIIND.NS", "ABBOTINDIA.NS", "ALKEM.NS",
-        "AUROPHARMA.NS", "BOSCHLTD.NS", "CHOLAFIN.NS", "CUMMINSIND.NS",
-        "DABUR.NS", "DIXON.NS", "ESCORTS.NS", "HAVELLS.NS",
-        "ICICIGI.NS", "INDIGO.NS", "JUBLFOOD.NS", "LTIM.NS",
-        "MARICO.NS", "MUTHOOTFIN.NS", "NAUKRI.NS", "NAVINFLUOR.NS",
-        "PEL.NS", "PERSISTENT.NS", "PETRONET.NS", "PIDILITIND.NS",
-        "POLYCAB.NS", "SRF.NS", "TATACOMM.NS", "TATACONSUM.NS",
-        "TATAPOWER.NS", "TORNTPOWER.NS", "VOLTAS.NS"
-    ]
+    url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
         import requests
         from io import StringIO
-        url = "https://en.wikipedia.org/wiki/NIFTY_500"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
         res = requests.get(url, headers=headers, timeout=10)
-        tables = pd.read_html(StringIO(res.text))
-        for df in tables:
+        if res.status_code == 200:
+            df = pd.read_csv(StringIO(res.text))
             if 'Symbol' in df.columns:
                 symbols = df['Symbol'].tolist()
-                return [f"{s}.NS" for s in symbols]
+                # Clean symbols and add .NS suffix
+                clean_symbols = [f"{str(s).strip()}.NS" for s in symbols if s]
+                return clean_symbols
         
-        return fallback_universe
+        # Fallback to local file if request fails
+        import os
+        from pathlib import Path
+        local_csv_path = Path(os.path.dirname(os.path.abspath(__file__))) / ".." / "ind_nifty500list.csv"
+        
+        if local_csv_path.exists():
+            df = pd.read_csv(local_csv_path)
+            if 'Symbol' in df.columns:
+                symbols = df['Symbol'].tolist()
+                return [f"{str(s).strip()}.NS" for s in symbols if s]
+                
+        # Ultimate fallback
+        return [
+            "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", 
+            "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS"
+        ]
     except Exception as e:
-        print("Could not fetch NSE 500 from Wikipedia:", e)
-        return fallback_universe
+        print("Could not fetch NSE 500 from official source or local file:", e)
+        # Ultimate fallback
+        return [
+            "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", 
+            "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS"
+        ]
 
 def process_stock(ticker_string):
     try:
@@ -138,6 +139,10 @@ def scan_vcp():
     except Exception as e:
         return {"error": f"Failed to run VCP scan: {str(e)}\n{traceback.format_exc()}"}
 
+def run_vcp_screener():
+    """Entry point for the backend to run the VCP scan."""
+    return scan_vcp()
+
 if __name__ == "__main__":
-    result = scan_vcp()
-    print(json.dumps(result, indent=2))
+    results = run_vcp_screener()
+    print(json.dumps(results, indent=2))

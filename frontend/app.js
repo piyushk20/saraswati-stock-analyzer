@@ -1,10 +1,10 @@
 // app.js
+console.log("🚀 APP.JS LOADED! BROWSER CACHE CLEARED! 🚀");
 
-// Always use localhost:8080 when running the frontend locally, otherwise use relative path for production
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-const API_BASE = isLocal ? "http://127.0.0.1:8080/api/analyze" : "/api/analyze";
 
 let chartInstance = null;
+let activeApiPort = isLocal ? "8000" : ""; // Strictly 8000 for backend
 
 document.addEventListener("DOMContentLoaded", () => {
   // Populate the dropdown with NSE 500 stocks
@@ -18,6 +18,32 @@ document.addEventListener("DOMContentLoaded", () => {
   loadVcpScreenerData();
 
   const stockSelector = document.getElementById("stockSelector");
+  const stockSearch = document.getElementById("stockSearch");
+  
+  // SEARCH FILTER LOGIC
+  if (stockSearch && stockSelector) {
+    stockSearch.addEventListener("keyup", (e) => {
+      const term = e.target.value.toUpperCase();
+      const options = stockSelector.options;
+      
+      for (let i = 1; i < options.length; i++) {
+        const txt = options[i].text.toUpperCase();
+        const val = options[i].value.toUpperCase();
+        // Show if matches symbol or name
+        const match = txt.includes(term) || val.includes(term);
+        options[i].style.display = match ? "" : "none";
+      }
+    });
+
+    // Clear search on selection
+    stockSelector.addEventListener("change", () => {
+      stockSearch.value = "";
+      // Reset visibility
+      for (let i = 1; i < stockSelector.options.length; i++) {
+        stockSelector.options[i].style.display = "";
+      }
+    });
+  }
   
   stockSelector.addEventListener("change", async (e) => {
     const symbol = e.target.value;
@@ -34,15 +60,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (screenerBox) screenerBox.style.display = "none";
     
     try {
-      const resp = await fetch(`${API_BASE}/${encodeURIComponent(symbol)}`, {
-        headers: {
-          "X-API-Key": "saraswati-secret-key-2026"
-        }
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+      const baseUrl = isLocal ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
+      const fetchUrl = `${baseUrl}/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
+
+      const resp = await fetch(fetchUrl, {
+        headers: { "X-API-Key": "saraswati-secret-key-2026" },
+        cache: "no-store"
       });
-      const data = await resp.json();
       
-      if (!resp.ok) {
-        throw new Error(data.detail || "Error fetching data.");
+      let data;
+      if (resp.ok) {
+        data = await resp.json();
+      } else {
+        const errorText = await resp.text();
+        throw new Error(`Error fetching data: ${resp.status} - ${errorText}`);
       }
       
       renderDashboard(data);
@@ -78,29 +110,16 @@ async function loadScreenerData() {
   
   try {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+    const BASE = isLocal ? "http://127.0.0.1:8000/api/screener/crossovers" : "/api/screener/crossovers";
+    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
+
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      cache: "no-store"
+    });
     
-    // Try primary port 8080, fallback to 8000 if needed
-    const ports = isLocal ? ["8080", "8000"] : [null];
-    let data = null;
-    let success = false;
-
-    for (const port of ports) {
-      try {
-        const BASE = port ? `http://127.0.0.1:${port}/api/screener/crossovers` : "/api/screener/crossovers";
-        const resp = await fetch(BASE, {
-          headers: { "X-API-Key": "saraswati-secret-key-2026" }
-        });
-        if (resp.ok) {
-          data = await resp.json();
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn(`Failed to fetch from port ${port}`, err);
-      }
-    }
-
-    if (!success) throw new Error("Could not reach backend on port 8080 or 8000");
+    if (!resp.ok) throw new Error(`Could not reach backend on port 8000: ${resp.status}`);
+    const data = await resp.json();
     
     // Reveal the box only if no stock has been actively selected yet
     const stockSelector = document.getElementById("stockSelector");
@@ -167,27 +186,16 @@ async function loadVcpScreenerData() {
   
   try {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const ports = isLocal ? ["8080", "8000"] : [null];
-    let data = null;
-    let success = false;
+    const BASE = isLocal ? "http://127.0.0.1:8000/api/screener/vcp" : "/api/screener/vcp";
+    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
 
-    for (const port of ports) {
-      try {
-        const BASE = port ? `http://127.0.0.1:${port}/api/screener/vcp` : "/api/screener/vcp";
-        const resp = await fetch(BASE, {
-          headers: { "X-API-Key": "saraswati-secret-key-2026" }
-        });
-        if (resp.ok) {
-          data = await resp.json();
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn(`Failed to fetch vcp screener from port ${port}`, err);
-      }
-    }
-
-    if (!success) throw new Error("Could not fetch VCP screener data");
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      cache: "no-store"
+    });
+    
+    if (!resp.ok) throw new Error("Could not fetch VCP screener data");
+    const data = await resp.json();
 
     if (data.vcp_stocks && data.vcp_stocks.length > 0) {
       vcpBody.innerHTML = "";
@@ -231,32 +239,19 @@ async function loadNse500Stocks() {
   
   try {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const ports = isLocal ? ["8080", "8000"] : [null];
-    let data = null;
-    let success = false;
+    const BASE = isLocal ? "http://127.0.0.1:8000/api/market/nse500" : "/api/market/nse500";
+    const fetchUrl = `${BASE}?v=${new Date().getTime()}`; // Cache buster
 
-    for (const port of ports) {
-      try {
-        const BASE = port ? `http://127.0.0.1:${port}/api/market/nse500` : "/api/market/nse500";
-        const resp = await fetch(BASE, {
-          headers: { "X-API-Key": "saraswati-secret-key-2026" }
-        });
-        if (resp.ok) {
-          data = await resp.json();
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn(`Failed to fetch NSE 500 list from port ${port}`, err);
-      }
-    }
-
-    if (!success) throw new Error("Could not fetch NSE 500 list");
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      cache: "no-store"
+    });
     
-    // Clear existing options except the first placeholder
-    while (stockSelector.options.length > 1) {
-      stockSelector.remove(1);
-    }
+    if (!resp.ok) throw new Error(`Could not fetch NSE 500 list: ${resp.status}`);
+    const data = await resp.json();
+    
+    const nse500Group = document.getElementById("nse500Group");
+    if (nse500Group) nse500Group.innerHTML = "";
     
     // Populate dropdown with fetched symbols
     if (data && data.symbols) {
@@ -264,8 +259,13 @@ async function loadNse500Stocks() {
          const option = document.createElement("option");
          option.value = symbol;
          option.text = symbol;
-         stockSelector.add(option);
+         if (nse500Group) {
+           nse500Group.appendChild(option);
+         } else {
+           stockSelector.add(option);
+         }
       });
+      console.log(`Successfully loaded ${data.symbols.length} NSE 500 stocks.`);
     }
   } catch (e) {
     console.error("Failed to load NSE 500 stocks", e);
@@ -275,35 +275,26 @@ async function loadNse500Stocks() {
 async function loadMarketOverview() {
   try {
     const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const ports = isLocal ? ["8080", "8000"] : [null];
-    let data = null;
-    let success = false;
+    const BASE = isLocal ? "http://127.0.0.1:8000/api/market/overview" : "/api/market/overview";
+    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
 
-    for (const port of ports) {
-      try {
-        const BASE = port ? `http://127.0.0.1:${port}/api/market/overview` : "/api/market/overview";
-        const resp = await fetch(BASE, {
-          headers: { "X-API-Key": "saraswati-secret-key-2026" }
-        });
-        if (resp.ok) {
-          data = await resp.json();
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn(`Failed to fetch market overview from port ${port}`, err);
-      }
-    }
-
-    if (!success) throw new Error("Could not fetch market overview");
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": "saraswati-secret-key-2026" },
+      cache: "no-store"
+    });
+    
+    if (!resp.ok) throw new Error(`Could not fetch market overview: ${resp.status}`);
+    const data = await resp.json();
 
     renderMarketOverview(data);
+    hideOverlay("loadingOverlay");
   } catch (e) {
     console.error("Failed to load market overview", e);
     const indicesRow = document.getElementById("indicesRow");
     if (indicesRow) {
       indicesRow.innerHTML = `<div class="pulse-loader" style="color: var(--negative)">Failed to load market data.</div>`;
     }
+    hideOverlay("loadingOverlay");
   }
 }
 
@@ -330,7 +321,7 @@ function renderMarketOverview(data) {
         <div class="idx-name">${sanitize(idx.name)}</div>
         <div class="idx-price-wrap">
           <div class="idx-price">${fmt(idx.price)}</div>
-          <div class="idx-change ${changeClass}">${sign}${idx.change_pct.toFixed(2)}%</div>
+          <div class="idx-change ${changeClass}">${sign}${(idx.change_pct != null ? idx.change_pct.toFixed(2) : '0.00')}%</div>
         </div>
         <div class="idx-range">
           <span>L: ${fmt(idx.low).replace(/₹/, '')}</span>
@@ -366,7 +357,7 @@ function renderMarketOverview(data) {
       tr.innerHTML = `
         <td><strong>${sanitize(g.symbol)}</strong></td>
         <td>${fmt(g.price)}</td>
-        <td class="text-green">+${g.change_pct.toFixed(2)}%</td>
+        <td class="text-green">+${(g.change_pct != null ? g.change_pct.toFixed(2) : '0.00')}%</td>
       `;
       tr.addEventListener("click", () => {
          const select = document.getElementById("stockSelector");
@@ -396,7 +387,7 @@ function renderMarketOverview(data) {
       tr.innerHTML = `
         <td><strong>${sanitize(l.symbol)}</strong></td>
         <td>${fmt(l.price)}</td>
-        <td class="text-red">${l.change_pct.toFixed(2)}%</td>
+        <td class="text-red">${(l.change_pct != null ? l.change_pct.toFixed(2) : '0.00')}%</td>
       `;
       tr.addEventListener("click", () => {
          const select = document.getElementById("stockSelector");
@@ -427,7 +418,7 @@ function renderDashboard(data) {
   document.getElementById("heroName").textContent = data.name || "N/A";
   document.getElementById("heroSector").textContent = `${data.sector || "N/A"} • ${data.industry || "N/A"}`;
   
-  const currentPrice = data.current_price || data.regular_market_price || 0;
+  const currentPrice = data.price || data.current_price || data.regular_market_price || 0;
   const previousClose = data.previous_close || 0;
   const change = currentPrice - previousClose;
   const changePct = previousClose ? (change / previousClose * 100) : 0;
@@ -452,8 +443,9 @@ function renderDashboard(data) {
 }
 
 function renderChart(data) {
-  const dates = data.historical_prices ? data.historical_prices.dates : [];
-  const prices = data.historical_prices ? data.historical_prices.closes : [];
+  const chartData = data.chart || data.historical_prices || null;
+  const dates = chartData ? chartData.dates : [];
+  const prices = chartData ? chartData.closes : [];
   const startPrice = prices[0] || 0;
   const endPrice = prices[prices.length - 1] || 0;
   const isUp = endPrice >= startPrice;
@@ -590,7 +582,7 @@ function renderMetrics(data) {
 
 function renderTechGrid(data) {
   // Mini cards for RSI, MACD, Signal
-  const rsi = data.rsi_14;
+  const rsi = data.rsi ? data.rsi.daily : null;
   let rsiColor = "var(--text-main)", rsiSignal = "NEUTRAL", rsiClass = "neutral";
   if (rsi !== null && rsi !== undefined) {
     if (rsi > 70) { rsiColor = "var(--negative)"; rsiSignal = "OVERBOUGHT"; rsiClass = "bearish"; }
@@ -628,7 +620,7 @@ function renderTechGrid(data) {
     <div class="signal-badge ${crossUp ? "bullish" : "bearish"}">${(sig === null || sig === undefined) ? "N/A" : crossUp ? "BUY CROSS" : "SELL CROSS"}</div>
   `;
 
-  const current = data.current_price || data.regular_market_price;
+  const current = data.price || data.current_price || data.regular_market_price || 0;
   let volSignal = null;
   if (data.volume_trend) {
       if (data.volume_trend.includes("Buying")) {
@@ -659,7 +651,7 @@ function renderTechGrid(data) {
 
 function renderFinancials(data) {
   // New "Financial Statements" data added from the backend request (P&L, Balance Sheet, Cash Flow)
-  const isIndex = data.sector === "Index";
+  const isIndex = data.sector === "Index" || !("financials_revenue" in data);
   const box = document.getElementById("financialsBox");
   if (isIndex || data.financials_revenue === null) {
       box.style.display = "none";
@@ -691,7 +683,7 @@ function renderFinancials(data) {
 
 function renderMultiRSI(data) {
   const box = document.getElementById("rsiGridBox");
-  if (data.rsi_14 === undefined && data.rsi_weekly === undefined && data.rsi_monthly === undefined) {
+  if (!data.rsi) {
     box.style.display = "none";
     return;
   }
@@ -718,13 +710,13 @@ function renderMultiRSI(data) {
     }
   };
 
-  renderCard("rsiDailyCard", "Daily RSI", data.rsi_14);
-  renderCard("rsiWeeklyCard", "Weekly RSI", data.rsi_weekly);
-  renderCard("rsiMonthlyCard", "Monthly RSI", data.rsi_monthly);
+  renderCard("rsiDailyCard", "Daily RSI", data.rsi ? data.rsi.daily : null);
+  renderCard("rsiWeeklyCard", "Weekly RSI", data.rsi ? data.rsi.weekly : null);
+  renderCard("rsiMonthlyCard", "Monthly RSI", data.rsi ? data.rsi.monthly : null);
 }
 
 function renderFundamentals(data) {
-  const isIndex = data.sector === "Index";
+  const isIndex = data.sector === "Index" || !("pe_ratio" in data);
   const box = document.getElementById("fundamentalsBox");
   if (isIndex) {
       box.style.display = "none";
@@ -761,7 +753,7 @@ function renderPivotGrid(data) {
   box.style.display = "block";
 
   const p = data.pivot_points;
-  const current = data.current_price || 0;
+  const current = data.price || data.current_price || 0;
 
   const getHighlight = (val) => {
     // If exact match (rare) neutral, if above current it's resistance, below is support.
@@ -848,8 +840,15 @@ function renderRelativeStrength(data) {
 
 function renderOptionsData(data) {
   const box = document.getElementById("optionsBox");
+  if (!box) return;
+
+  const grid = document.getElementById("optionsGrid");
+  if (!grid) return;
+
+  box.style.display = "block"; // Always show the box to indicate functionality exists
+  
   if (!data.options_data) {
-    box.style.display = "none";
+    grid.innerHTML = `<div class="data-row" style="color: var(--text-dim);">Options data unavailable (Market Data Feed disconnected).</div>`;
     return;
   }
   

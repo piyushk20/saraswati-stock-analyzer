@@ -4,7 +4,6 @@ import urllib.request
 import json
 import logging
 import os
-import pickle
 from datetime import datetime
 
 from dotenv import load_dotenv

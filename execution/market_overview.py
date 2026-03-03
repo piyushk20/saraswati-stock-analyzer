@@ -2,6 +2,11 @@ import yfinance as yf
 import pandas as pd
 import json
 import traceback
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Define Major Indices
 INDICES = {
@@ -66,7 +71,7 @@ def fetch_market_overview():
                             "low": round(day_low, 2)
                         })
                 except Exception as e:
-                    pass
+                    logger.error(f"Error processing index {symbol}: {e}")
 
         # 2. Fetch Nifty 50 Data for Gainers/Losers
         stocks_data = yf.download(NIFTY_50, period="5d", group_by="ticker", progress=False)
@@ -91,7 +96,8 @@ def fetch_market_overview():
                         "change_pct": round(pct_change, 2),
                         "price": round(current_close, 2)
                     })
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error processing stock {symbol}: {e}")
                 continue
                 
         # Sort to find top gainers and losers

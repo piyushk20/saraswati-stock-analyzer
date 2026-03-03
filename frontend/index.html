@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
   
   <!-- Chart.js for data visualization -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -34,222 +34,26 @@
     <header>
       <div class="brand-title">Saraswati Intelligence</div>
       <div class="controls">
-        <select id="stockSelector" class="glass-select">
-          <option value="" disabled selected>Search & Select Market Instrument...</option>
-          <optgroup label="Major Market Indices">
-            <option value="^NSEI">NIFTY 50</option>
-            <option value="^BSESN">BSE SENSEX</option>
-            <option value="^NSEBANK">NIFTY BANK</option>
-            <option value="^CNXIT">NIFTY IT</option>
-            <option value="^CRSLDX">NIFTY NEXT 50</option>
-            <option value="^NSEMDCP50">NIFTY MIDCAP 50</option>
-            <option value="^CNXAUTO">NIFTY AUTO</option>
-            <option value="^CNXPHARMA">NIFTY PHARMA</option>
-            <option value="BSE-MIDCAP.BO">BSE MIDCAP</option>
-          </optgroup>
-          <optgroup label="NSE 200 Equities">
-            <option value="360ONE.NS">360 ONE WAM Ltd.</option>
-            <option value="ABB.NS">ABB India Ltd.</option>
-            <option value="ACC.NS">ACC Ltd.</option>
-            <option value="APLAPOLLO.NS">APL Apollo Tubes Ltd.</option>
-            <option value="AUBANK.NS">AU Small Finance Bank Ltd.</option>
-            <option value="ADANIENSOL.NS">Adani Energy Solutions Ltd.</option>
-            <option value="ADANIENT.NS">Adani Enterprises Ltd.</option>
-            <option value="ADANIGREEN.NS">Adani Green Energy Ltd.</option>
-            <option value="ADANIPORTS.NS">Adani Ports and Special Economic Zone Ltd.</option>
-            <option value="ADANIPOWER.NS">Adani Power Ltd.</option>
-            <option value="ATGL.NS">Adani Total Gas Ltd.</option>
-            <option value="ABCAPITAL.NS">Aditya Birla Capital Ltd.</option>
-            <option value="ALKEM.NS">Alkem Laboratories Ltd.</option>
-            <option value="AMBUJACEM.NS">Ambuja Cements Ltd.</option>
-            <option value="APOLLOHOSP.NS">Apollo Hospitals Enterprise Ltd.</option>
-            <option value="ASHOKLEY.NS">Ashok Leyland Ltd.</option>
-            <option value="ASIANPAINT.NS">Asian Paints Ltd.</option>
-            <option value="ASTRAL.NS">Astral Ltd.</option>
-            <option value="AUROPHARMA.NS">Aurobindo Pharma Ltd.</option>
-            <option value="DMART.NS">Avenue Supermarts Ltd.</option>
-            <option value="AXISBANK.NS">Axis Bank Ltd.</option>
-            <option value="BSE.NS">BSE Ltd.</option>
-            <option value="BAJAJ-AUTO.NS">Bajaj Auto Ltd.</option>
-            <option value="BAJFINANCE.NS">Bajaj Finance Ltd.</option>
-            <option value="BAJAJFINSV.NS">Bajaj Finserv Ltd.</option>
-            <option value="BAJAJHLDNG.NS">Bajaj Holdings & Investment Ltd.</option>
-            <option value="BAJAJHFL.NS">Bajaj Housing Finance Ltd.</option>
-            <option value="BANKBARODA.NS">Bank of Baroda</option>
-            <option value="BANKINDIA.NS">Bank of India</option>
-            <option value="BDL.NS">Bharat Dynamics Ltd.</option>
-            <option value="BEL.NS">Bharat Electronics Ltd.</option>
-            <option value="BHARATFORG.NS">Bharat Forge Ltd.</option>
-            <option value="BHEL.NS">Bharat Heavy Electricals Ltd.</option>
-            <option value="BPCL.NS">Bharat Petroleum Corporation Ltd.</option>
-            <option value="BHARTIARTL.NS">Bharti Airtel Ltd.</option>
-            <option value="BHARTIHEXA.NS">Bharti Hexacom Ltd.</option>
-            <option value="BIOCON.NS">Biocon Ltd.</option>
-            <option value="BLUESTARCO.NS">Blue Star Ltd.</option>
-            <option value="BOSCHLTD.NS">Bosch Ltd.</option>
-            <option value="BRITANNIA.NS">Britannia Industries Ltd.</option>
-            <option value="CGPOWER.NS">CG Power and Industrial Solutions Ltd.</option>
-            <option value="CANBK.NS">Canara Bank</option>
-            <option value="CHOLAFIN.NS">Cholamandalam Investment and Finance Company Ltd.</option>
-            <option value="CIPLA.NS">Cipla Ltd.</option>
-            <option value="COALINDIA.NS">Coal India Ltd.</option>
-            <option value="COCHINSHIP.NS">Cochin Shipyard Ltd.</option>
-            <option value="COFORGE.NS">Coforge Ltd.</option>
-            <option value="COLPAL.NS">Colgate Palmolive (India) Ltd.</option>
-            <option value="CONCOR.NS">Container Corporation of India Ltd.</option>
-            <option value="COROMANDEL.NS">Coromandel International Ltd.</option>
-            <option value="CUMMINSIND.NS">Cummins India Ltd.</option>
-            <option value="DLF.NS">DLF Ltd.</option>
-            <option value="DABUR.NS">Dabur India Ltd.</option>
-            <option value="DIVISLAB.NS">Divi's Laboratories Ltd.</option>
-            <option value="DIXON.NS">Dixon Technologies (India) Ltd.</option>
-            <option value="DRREDDY.NS">Dr. Reddy's Laboratories Ltd.</option>
-            <option value="EICHERMOT.NS">Eicher Motors Ltd.</option>
-            <option value="ETERNAL.NS">Eternal Ltd.</option>
-            <option value="EXIDEIND.NS">Exide Industries Ltd.</option>
-            <option value="NYKAA.NS">FSN E-Commerce Ventures Ltd.</option>
-            <option value="FEDERALBNK.NS">Federal Bank Ltd.</option>
-            <option value="FORTIS.NS">Fortis Healthcare Ltd.</option>
-            <option value="GAIL.NS">GAIL (India) Ltd.</option>
-            <option value="GMRAIRPORT.NS">GMR Airports Ltd.</option>
-            <option value="GLENMARK.NS">Glenmark Pharmaceuticals Ltd.</option>
-            <option value="GODFRYPHLP.NS">Godfrey Phillips India Ltd.</option>
-            <option value="GODREJCP.NS">Godrej Consumer Products Ltd.</option>
-            <option value="GODREJPROP.NS">Godrej Properties Ltd.</option>
-            <option value="GRASIM.NS">Grasim Industries Ltd.</option>
-            <option value="HCLTECH.NS">HCL Technologies Ltd.</option>
-            <option value="HDFCAMC.NS">HDFC Asset Management Company Ltd.</option>
-            <option value="HDFCBANK.NS">HDFC Bank Ltd.</option>
-            <option value="HDFCLIFE.NS">HDFC Life Insurance Company Ltd.</option>
-            <option value="HAVELLS.NS">Havells India Ltd.</option>
-            <option value="HEROMOTOCO.NS">Hero MotoCorp Ltd.</option>
-            <option value="HINDALCO.NS">Hindalco Industries Ltd.</option>
-            <option value="HAL.NS">Hindustan Aeronautics Ltd.</option>
-            <option value="HINDPETRO.NS">Hindustan Petroleum Corporation Ltd.</option>
-            <option value="HINDUNILVR.NS">Hindustan Unilever Ltd.</option>
-            <option value="HINDZINC.NS">Hindustan Zinc Ltd.</option>
-            <option value="POWERINDIA.NS">Hitachi Energy India Ltd.</option>
-            <option value="HUDCO.NS">Housing & Urban Development Corporation Ltd.</option>
-            <option value="HYUNDAI.NS">Hyundai Motor India Ltd.</option>
-            <option value="ICICIBANK.NS">ICICI Bank Ltd.</option>
-            <option value="ICICIGI.NS">ICICI Lombard General Insurance Company Ltd.</option>
-            <option value="IDFCFIRSTB.NS">IDFC First Bank Ltd.</option>
-            <option value="IRB.NS">IRB Infrastructure Developers Ltd.</option>
-            <option value="ITCHOTELS.NS">ITC Hotels Ltd.</option>
-            <option value="ITC.NS">ITC Ltd.</option>
-            <option value="INDIANB.NS">Indian Bank</option>
-            <option value="INDHOTEL.NS">Indian Hotels Co. Ltd.</option>
-            <option value="IOC.NS">Indian Oil Corporation Ltd.</option>
-            <option value="IRCTC.NS">Indian Railway Catering And Tourism Corporation Ltd.</option>
-            <option value="IRFC.NS">Indian Railway Finance Corporation Ltd.</option>
-            <option value="IREDA.NS">Indian Renewable Energy Development Agency Ltd.</option>
-            <option value="IGL.NS">Indraprastha Gas Ltd.</option>
-            <option value="INDUSTOWER.NS">Indus Towers Ltd.</option>
-            <option value="INDUSINDBK.NS">IndusInd Bank Ltd.</option>
-            <option value="NAUKRI.NS">Info Edge (India) Ltd.</option>
-            <option value="INFY.NS">Infosys Ltd.</option>
-            <option value="INDIGO.NS">InterGlobe Aviation Ltd.</option>
-            <option value="JSWENERGY.NS">JSW Energy Ltd.</option>
-            <option value="JSWSTEEL.NS">JSW Steel Ltd.</option>
-            <option value="JINDALSTEL.NS">Jindal Steel Ltd.</option>
-            <option value="JIOFIN.NS">Jio Financial Services Ltd.</option>
-            <option value="JUBLFOOD.NS">Jubilant Foodworks Ltd.</option>
-            <option value="KEI.NS">KEI Industries Ltd.</option>
-            <option value="KPITTECH.NS">KPIT Technologies Ltd.</option>
-            <option value="KALYANKJIL.NS">Kalyan Jewellers India Ltd.</option>
-            <option value="KOTAKBANK.NS">Kotak Mahindra Bank Ltd.</option>
-            <option value="LTF.NS">L&T Finance Ltd.</option>
-            <option value="LICHSGFIN.NS">LIC Housing Finance Ltd.</option>
-            <option value="LTIM.NS">LTIMindtree Ltd.</option>
-            <option value="LT.NS">Larsen & Toubro Ltd.</option>
-            <option value="LICI.NS">Life Insurance Corporation of India</option>
-            <option value="LODHA.NS">Lodha Developers Ltd.</option>
-            <option value="LUPIN.NS">Lupin Ltd.</option>
-            <option value="MRF.NS">MRF Ltd.</option>
-            <option value="M&MFIN.NS">Mahindra & Mahindra Financial Services Ltd.</option>
-            <option value="M&M.NS">Mahindra & Mahindra Ltd.</option>
-            <option value="MANKIND.NS">Mankind Pharma Ltd.</option>
-            <option value="MARICO.NS">Marico Ltd.</option>
-            <option value="MARUTI.NS">Maruti Suzuki India Ltd.</option>
-            <option value="MFSL.NS">Max Financial Services Ltd.</option>
-            <option value="MAXHEALTH.NS">Max Healthcare Institute Ltd.</option>
-            <option value="MAZDOCK.NS">Mazagoan Dock Shipbuilders Ltd.</option>
-            <option value="MOTILALOFS.NS">Motilal Oswal Financial Services Ltd.</option>
-            <option value="MPHASIS.NS">MphasiS Ltd.</option>
-            <option value="MUTHOOTFIN.NS">Muthoot Finance Ltd.</option>
-            <option value="NHPC.NS">NHPC Ltd.</option>
-            <option value="NMDC.NS">NMDC Ltd.</option>
-            <option value="NTPCGREEN.NS">NTPC Green Energy Ltd.</option>
-            <option value="NTPC.NS">NTPC Ltd.</option>
-            <option value="NATIONALUM.NS">National Aluminium Co. Ltd.</option>
-            <option value="NESTLEIND.NS">Nestle India Ltd.</option>
-            <option value="OBEROIRLTY.NS">Oberoi Realty Ltd.</option>
-            <option value="ONGC.NS">Oil & Natural Gas Corporation Ltd.</option>
-            <option value="OIL.NS">Oil India Ltd.</option>
-            <option value="PAYTM.NS">One 97 Communications Ltd.</option>
-            <option value="OFSS.NS">Oracle Financial Services Software Ltd.</option>
-            <option value="POLICYBZR.NS">PB Fintech Ltd.</option>
-            <option value="PIIND.NS">PI Industries Ltd.</option>
-            <option value="PAGEIND.NS">Page Industries Ltd.</option>
-            <option value="PATANJALI.NS">Patanjali Foods Ltd.</option>
-            <option value="PERSISTENT.NS">Persistent Systems Ltd.</option>
-            <option value="PHOENIXLTD.NS">Phoenix Mills Ltd.</option>
-            <option value="PIDILITIND.NS">Pidilite Industries Ltd.</option>
-            <option value="POLYCAB.NS">Polycab India Ltd.</option>
-            <option value="PFC.NS">Power Finance Corporation Ltd.</option>
-            <option value="POWERGRID.NS">Power Grid Corporation of India Ltd.</option>
-            <option value="PREMIERENE.NS">Premier Energies Ltd.</option>
-            <option value="PRESTIGE.NS">Prestige Estates Projects Ltd.</option>
-            <option value="PNB.NS">Punjab National Bank</option>
-            <option value="RECLTD.NS">REC Ltd.</option>
-            <option value="RVNL.NS">Rail Vikas Nigam Ltd.</option>
-            <option value="RELIANCE.NS">Reliance Industries Ltd.</option>
-            <option value="SBICARD.NS">SBI Cards and Payment Services Ltd.</option>
-            <option value="SBILIFE.NS">SBI Life Insurance Company Ltd.</option>
-            <option value="SRF.NS">SRF Ltd.</option>
-            <option value="MOTHERSON.NS">Samvardhana Motherson International Ltd.</option>
-            <option value="SHREECEM.NS">Shree Cement Ltd.</option>
-            <option value="SHRIRAMFIN.NS">Shriram Finance Ltd.</option>
-            <option value="ENRIN.NS">Siemens Energy India Ltd.</option>
-            <option value="SIEMENS.NS">Siemens Ltd.</option>
-            <option value="SOLARINDS.NS">Solar Industries India Ltd.</option>
-            <option value="SONACOMS.NS">Sona BLW Precision Forgings Ltd.</option>
-            <option value="SBIN.NS">State Bank of India</option>
-            <option value="SAIL.NS">Steel Authority of India Ltd.</option>
-            <option value="SUNPHARMA.NS">Sun Pharmaceutical Industries Ltd.</option>
-            <option value="SUPREMEIND.NS">Supreme Industries Ltd.</option>
-            <option value="SUZLON.NS">Suzlon Energy Ltd.</option>
-            <option value="SWIGGY.NS">Swiggy Ltd.</option>
-            <option value="TVSMOTOR.NS">TVS Motor Company Ltd.</option>
-            <option value="TATACOMM.NS">Tata Communications Ltd.</option>
-            <option value="TCS.NS">Tata Consultancy Services Ltd.</option>
-            <option value="TATACONSUM.NS">Tata Consumer Products Ltd.</option>
-            <option value="TATAELXSI.NS">Tata Elxsi Ltd.</option>
-            <option value="TMPV.NS">Tata Motors Passenger Vehicles Ltd.</option>
-            <option value="TATAPOWER.NS">Tata Power Co. Ltd.</option>
-            <option value="TATASTEEL.NS">Tata Steel Ltd.</option>
-            <option value="TATATECH.NS">Tata Technologies Ltd.</option>
-            <option value="TECHM.NS">Tech Mahindra Ltd.</option>
-            <option value="TITAN.NS">Titan Company Ltd.</option>
-            <option value="TORNTPHARM.NS">Torrent Pharmaceuticals Ltd.</option>
-            <option value="TORNTPOWER.NS">Torrent Power Ltd.</option>
-            <option value="TRENT.NS">Trent Ltd.</option>
-            <option value="TIINDIA.NS">Tube Investments of India Ltd.</option>
-            <option value="UPL.NS">UPL Ltd.</option>
-            <option value="ULTRACEMCO.NS">UltraTech Cement Ltd.</option>
-            <option value="UNIONBANK.NS">Union Bank of India</option>
-            <option value="UNITDSPR.NS">United Spirits Ltd.</option>
-            <option value="VBL.NS">Varun Beverages Ltd.</option>
-            <option value="VEDL.NS">Vedanta Ltd.</option>
-            <option value="VMM.NS">Vishal Mega Mart Ltd.</option>
-            <option value="IDEA.NS">Vodafone Idea Ltd.</option>
-            <option value="VOLTAS.NS">Voltas Ltd.</option>
-            <option value="WAAREEENER.NS">Waaree Energies Ltd.</option>
-            <option value="WIPRO.NS">Wipro Ltd.</option>
-            <option value="YESBANK.NS">Yes Bank Ltd.</option>
-            <option value="ZYDUSLIFE.NS">Zydus Lifesciences Ltd.</option>
-          </optgroup>
-        </select>
+        <div class="search-wrapper">
+          <input type="text" id="stockSearch" class="glass-input" placeholder="Quick Search (e.g. RELIANCE)..." autocomplete="off">
+          <select id="stockSelector" class="glass-select">
+            <option value="" disabled selected>Select from Market...</option>
+            <optgroup label="Major Market Indices">
+              <option value="^NSEI">NIFTY 50</option>
+              <option value="^BSESN">BSE SENSEX</option>
+              <option value="^NSEBANK">NIFTY BANK</option>
+              <option value="^CNXIT">NIFTY IT</option>
+              <option value="^CRSLDX">NIFTY NEXT 50</option>
+              <option value="^NSEMDCP50">NIFTY MIDCAP 50</option>
+              <option value="^CNXAUTO">NIFTY AUTO</option>
+              <option value="^CNXPHARMA">NIFTY PHARMA</option>
+              <option value="BSE-MIDCAP.BO">BSE MIDCAP</option>
+            </optgroup>
+            <optgroup id="nse500Group" label="NSE 500 Equities">
+              <!-- Dynamically populated by app.js -->
+            </optgroup>
+          </select>
+        </div>
       </div>
     </header>
 
@@ -293,7 +97,7 @@
       <div class="market-tables-grid" style="margin-top:20px;">
         <!-- Market Screener (Golden/Death Crosses) -->
         <div id="screenerBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
-          <h2 class="card-title text-purple">Screener: 7-Day Crossovers</h2>
+          <h2 class="card-title text-blue">Screener: 7-Day Crossovers</h2>
           <div class="minimal-table-container">
             <table class="market-table premium-table" id="screenerTable">
               <thead>
@@ -455,6 +259,6 @@
 
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

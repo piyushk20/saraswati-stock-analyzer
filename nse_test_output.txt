@@ -1,0 +1,41 @@
+2026-02-27 22:10:46,926 - INFO - Hitting base URL: https://www.nseindia.com
+2026-02-27 22:10:47,976 - INFO - Base URL response: 200, Cookies: 4
+2026-02-27 22:10:48,977 - INFO - Hitting lander: https://www.nseindia.com/option-chain
+2026-02-27 22:10:49,272 - INFO - Lander response: 200, Cookies: 7
+2026-02-27 22:10:50,273 - INFO - NSE session initialized successfully
+2026-02-27 22:10:50,273 - INFO - Hitting quote page for NIFTY: https://www.nseindia.com/option-chain
+2026-02-27 22:10:50,661 - INFO - Quote page response: 200, Total Cookies: 7
+2026-02-27 22:10:51,662 - INFO - Attempting to fetch option chain for NIFTY (Index: True) from https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY
+2026-02-27 22:10:51,757 - INFO - NSE API Status for NIFTY: 200
+2026-02-27 22:10:51,757 - WARNING - No records for NIFTY
+2026-02-27 22:10:51,757 - INFO - Hitting base URL: https://www.nseindia.com
+2026-02-27 22:10:51,916 - INFO - Base URL response: 200, Cookies: 4
+2026-02-27 22:10:52,917 - INFO - Hitting lander: https://www.nseindia.com/option-chain
+2026-02-27 22:10:53,345 - INFO - Lander response: 200, Cookies: 7
+2026-02-27 22:10:54,346 - INFO - NSE session initialized successfully
+2026-02-27 22:10:54,347 - INFO - Hitting quote page for NIFTY: https://www.nseindia.com/option-chain
+2026-02-27 22:10:54,972 - INFO - Quote page response: 200, Total Cookies: 7
+2026-02-27 22:10:55,973 - INFO - Attempting to fetch option chain for NIFTY (Index: True) from https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY
+2026-02-27 22:10:56,093 - INFO - NSE API Status for NIFTY: 200
+2026-02-27 22:10:56,093 - WARNING - No records for NIFTY
+2026-02-27 22:10:56,093 - INFO - Hitting quote page for RELIANCE: https://www.nseindia.com/get-quotes/equity?symbol=RELIANCE
+2026-02-27 22:10:57,201 - INFO - Quote page response: 200, Total Cookies: 8
+2026-02-27 22:10:58,203 - INFO - Attempting to fetch option chain for RELIANCE.NS (Index: False) from https://www.nseindia.com/api/option-chain-equities?symbol=RELIANCE
+2026-02-27 22:10:58,348 - INFO - NSE API Status for RELIANCE.NS: 200
+2026-02-27 22:10:58,348 - WARNING - No records for RELIANCE.NS
+2026-02-27 22:10:58,348 - INFO - Hitting base URL: https://www.nseindia.com
+2026-02-27 22:10:58,401 - INFO - Base URL response: 200, Cookies: 4
+2026-02-27 22:10:59,402 - INFO - Hitting lander: https://www.nseindia.com/option-chain
+2026-02-27 22:10:59,560 - INFO - Lander response: 200, Cookies: 7
+2026-02-27 22:11:00,561 - INFO - NSE session initialized successfully
+2026-02-27 22:11:00,561 - INFO - Hitting quote page for RELIANCE: https://www.nseindia.com/get-quotes/equity?symbol=RELIANCE
+2026-02-27 22:11:01,331 - INFO - Quote page response: 200, Total Cookies: 8
+2026-02-27 22:11:02,332 - INFO - Attempting to fetch option chain for RELIANCE.NS (Index: False) from https://www.nseindia.com/api/option-chain-equities?symbol=RELIANCE
+2026-02-27 22:11:02,609 - INFO - NSE API Status for RELIANCE.NS: 200
+2026-02-27 22:11:02,609 - WARNING - No records for RELIANCE.NS
+
+--- Testing NIFTY ---
+null
+
+--- Testing RELIANCE.NS ---
+null

@@ -1,0 +1,150 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\HP\AppData\Local\Programs\Python\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\HP\indianstock
+plugins: anyio-4.12.1
+collecting ... collected 5 items
+
+test_nse_v3.py::test_nse_v3 PASSED                                       [ 20%]
+test_nsepython.py::test_nsepython_options[NIFTY] FAILED                  [ 40%]
+test_nsepython.py::test_nsepython_options[RELIANCE] FAILED               [ 60%]
+test_yf_options.py::test_yf_options[RELIANCE.NS] FAILED                  [ 80%]
+test_yf_options.py::test_yf_options[^NSEI] FAILED                        [100%]
+
+================================== FAILURES ===================================
+________________________ test_nsepython_options[NIFTY] ________________________
+
+symbol = 'NIFTY'
+
+    @pytest.mark.parametrize("symbol", ["NIFTY", "RELIANCE"])
+    def test_nsepython_options(symbol):
+        print(f"\n--- Testing nsepython options for {symbol} ---")
+        try:
+            data = nse_optionchain_scrapper(symbol)
+            assert data is not None, f"No data returned for {symbol}"
+    
+            # Check if 'records' exists
+            if "records" in data:
+                print(f"Success! Found records for {symbol}")
+                expiries = data["records"]["expiryDates"]
+                assert len(expiries) > 0
+            else:
+>               pytest.fail(f"'records' key missing in response for {symbol}. Keys: {list(data.keys())}")
+E               Failed: 'records' key missing in response for NIFTY. Keys: []
+
+test_nsepython.py:18: Failed
+---------------------------- Captured stdout call -----------------------------
+
+--- Testing nsepython options for NIFTY ---
+______________________ test_nsepython_options[RELIANCE] _______________________
+
+symbol = 'RELIANCE'
+
+    @pytest.mark.parametrize("symbol", ["NIFTY", "RELIANCE"])
+    def test_nsepython_options(symbol):
+        print(f"\n--- Testing nsepython options for {symbol} ---")
+        try:
+            data = nse_optionchain_scrapper(symbol)
+            assert data is not None, f"No data returned for {symbol}"
+    
+            # Check if 'records' exists
+            if "records" in data:
+                print(f"Success! Found records for {symbol}")
+                expiries = data["records"]["expiryDates"]
+                assert len(expiries) > 0
+            else:
+>               pytest.fail(f"'records' key missing in response for {symbol}. Keys: {list(data.keys())}")
+E               Failed: 'records' key missing in response for RELIANCE. Keys: []
+
+test_nsepython.py:18: Failed
+---------------------------- Captured stdout call -----------------------------
+
+--- Testing nsepython options for RELIANCE ---
+________________________ test_yf_options[RELIANCE.NS] _________________________
+
+symbol = 'RELIANCE.NS'
+
+    @pytest.mark.parametrize("symbol", ["RELIANCE.NS", "^NSEI"])
+    def test_yf_options(symbol):
+        print(f"\n--- Testing yfinance options for {symbol} ---")
+        ticker = yf.Ticker(symbol)
+        try:
+            expiries = ticker.options
+>           assert expiries, f"No options found for {symbol}"
+E           AssertionError: No options found for RELIANCE.NS
+E           assert ()
+
+test_yf_options.py:11: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+symbol = 'RELIANCE.NS'
+
+    @pytest.mark.parametrize("symbol", ["RELIANCE.NS", "^NSEI"])
+    def test_yf_options(symbol):
+        print(f"\n--- Testing yfinance options for {symbol} ---")
+        ticker = yf.Ticker(symbol)
+        try:
+            expiries = ticker.options
+            assert expiries, f"No options found for {symbol}"
+    
+            print(f"Expiries: {expiries[:3]}...")
+            opt = ticker.option_chain(expiries[0])
+            assert not opt.calls.empty or not opt.puts.empty, f"No calls or puts found for {symbol}"
+    
+        except Exception as e:
+>           pytest.fail(f"Error: {e}")
+E           Failed: Error: No options found for RELIANCE.NS
+E           assert ()
+
+test_yf_options.py:18: Failed
+---------------------------- Captured stdout call -----------------------------
+
+--- Testing yfinance options for RELIANCE.NS ---
+___________________________ test_yf_options[^NSEI] ____________________________
+
+symbol = '^NSEI'
+
+    @pytest.mark.parametrize("symbol", ["RELIANCE.NS", "^NSEI"])
+    def test_yf_options(symbol):
+        print(f"\n--- Testing yfinance options for {symbol} ---")
+        ticker = yf.Ticker(symbol)
+        try:
+            expiries = ticker.options
+>           assert expiries, f"No options found for {symbol}"
+E           AssertionError: No options found for ^NSEI
+E           assert ()
+
+test_yf_options.py:11: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+symbol = '^NSEI'
+
+    @pytest.mark.parametrize("symbol", ["RELIANCE.NS", "^NSEI"])
+    def test_yf_options(symbol):
+        print(f"\n--- Testing yfinance options for {symbol} ---")
+        ticker = yf.Ticker(symbol)
+        try:
+            expiries = ticker.options
+            assert expiries, f"No options found for {symbol}"
+    
+            print(f"Expiries: {expiries[:3]}...")
+            opt = ticker.option_chain(expiries[0])
+            assert not opt.calls.empty or not opt.puts.empty, f"No calls or puts found for {symbol}"
+    
+        except Exception as e:
+>           pytest.fail(f"Error: {e}")
+E           Failed: Error: No options found for ^NSEI
+E           assert ()
+
+test_yf_options.py:18: Failed
+---------------------------- Captured stdout call -----------------------------
+
+--- Testing yfinance options for ^NSEI ---
+=========================== short test summary info ===========================
+FAILED test_nsepython.py::test_nsepython_options[NIFTY] - Failed: 'records' k...
+FAILED test_nsepython.py::test_nsepython_options[RELIANCE] - Failed: 'records...
+FAILED test_yf_options.py::test_yf_options[RELIANCE.NS] - Failed: Error: No o...
+FAILED test_yf_options.py::test_yf_options[^NSEI] - Failed: Error: No options...
+========================= 4 failed, 1 passed in 7.53s =========================
