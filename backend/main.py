@@ -23,15 +23,10 @@ import time
 from pathlib import Path
 from datetime import datetime, timedelta
 
-# Simple in-memory cache for screener results to prevent API spam
-screener_cache = {
-    "data": None,
-    "expires_at": datetime.min
-}
-market_overview_cache = {
-    "data": None,
-    "expires_at": datetime.min
-}
+# Simple in-memory cache for components
+# structure: {category: {"data": data, "expires_at": timestamp}}
+screener_cache = {}
+market_overview_cache = {}
 analysis_cache = {}  # symbol -> (data, timestamp)
 
 
@@ -71,25 +66,30 @@ logger = logging.getLogger("saraswati")
 
 app = FastAPI(title="Indian Stock Analyzer API", version="1.1.0")
 
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Added first so it handles preflight (OPTIONS) before other middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow all for robust dev verification
+    allow_credentials=False, # Must be False for allow_origins=["*"]
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ── Security Middleware ────────────────────────────────────────────────────────
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    # Skip for OPTIONS to avoid interfering with CORS preflight
+    if request.method == "OPTIONS":
+        return await call_next(request)
+        
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://static.yetanotherstockapp.com; connect-src 'self' http://127.0.0.1:8000"
+    # Relaxed connect-src for debugging
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://static.yetanotherstockapp.com; connect-src *"
     return response
-
-# ── CORS — localhost + file:// (null) only ────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # NOTE: Relaxed to "*" for local dev convenience, but security headers are active.
-    allow_credentials=True,
-    allow_methods=["GET"],
-    allow_headers=["*"],
-)
 
 # ── Input Validation ──────────────────────────────────────────────────────────
 # Allowlist: only characters valid in NSE/BSE ticker symbols.
@@ -137,7 +137,8 @@ SCRIPT_PATH = Path(__file__).parent.parent / "execution" / "analyze_stock.py"
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/api/analyze/{symbol:path}")
-async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(verify_api_key)):
+def analyze_stock(symbol: str, request: Request, api_key: str = Depends(verify_api_key)):
+    print(f"DEBUG: analyze_stock called for {symbol}")
     """
     Analyze an Indian stock or index by its yfinance-compatible symbol.
     e.g. /api/analyze/RELIANCE.NS or /api/analyze/%5ENSEI
@@ -154,11 +155,11 @@ async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(ve
     symbol = validate_symbol(symbol)
 
     # Cache check: 5 minute expiry for analysis results
-    if symbol in analysis_cache:
-        cached_data, timestamp = analysis_cache[symbol]
-        if datetime.now() - timestamp < timedelta(minutes=5):
-            logger.info(f"Serving analysis for {symbol} from cache")
-            return cached_data
+    # if symbol in analysis_cache:
+    #     cached_data, timestamp = analysis_cache[symbol]
+    #     if datetime.now() - timestamp < timedelta(minutes=5):
+    #         logger.info(f"Serving analysis for {symbol} from cache")
+    #         return cached_data
 
     if not SCRIPT_PATH.exists():
         logger.error("Execution script not found at %s", SCRIPT_PATH)
@@ -172,6 +173,19 @@ async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(ve
             logger.error(f"Analysis error for {symbol}: {error_msg}")
             raise HTTPException(status_code=404, detail=error_msg)
 
+        # Helper to convert numpy types to native Python types since FastAPI chokes on them
+        def clean_types(obj):
+            import numpy as np
+            if isinstance(obj, dict):
+                return {k: clean_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_types(i) for i in obj]
+            elif isinstance(obj, np.generic):
+                return obj.item()
+            return obj
+            
+        data = clean_types(data)
+
         # Cache successful result
         analysis_cache[symbol] = (data, datetime.now())
         return data
@@ -183,10 +197,10 @@ async def analyze_stock(symbol: str, request: Request, api_key: str = Depends(ve
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/api/screener/crossovers")
-async def get_screener_crossovers(request: Request, api_key: str = Depends(verify_api_key)):
+def get_screener_crossovers(request: Request, category: str = "nifty50", api_key: str = Depends(verify_api_key)):
     """
-    Returns recent Golden/Death crosses for top Indian stocks and indices.
-    Results are cached in-memory for 1 hour to prevent API limits.
+    Returns recent Golden/Death crosses for the selected universe.
+    Results are cached in-memory for 1 hour per category.
     """
     global screener_cache
     
@@ -195,64 +209,64 @@ async def get_screener_crossovers(request: Request, api_key: str = Depends(verif
     check_rate_limit(client_ip)
     
     # Return cached data if valid
-    if datetime.now() < screener_cache["expires_at"] and screener_cache["data"] is not None:
-        logger.info("Serving screener crossovers from cache")
-        return screener_cache["data"]
+    cache_entry = screener_cache.get(category)
+    if cache_entry and datetime.now() < cache_entry["expires_at"]:
+        logger.info(f"Serving screener crossovers for {category} from cache")
+        return cache_entry["data"]
         
     try:
-        logger.info("Executing screener crossover scan (cache miss)")
-        data = find_crossovers()
+        logger.info(f"Executing {category} crossover scan (cache miss)")
+        data = find_crossovers(category)
         
         if data.get("error"):
             raise HTTPException(status_code=500, detail=data["error"])
             
         # Update cache (1 hour expiry)
-        screener_cache["data"] = data
-        screener_cache["expires_at"] = datetime.now() + timedelta(hours=1)
+        screener_cache[category] = {
+            "data": data,
+            "expires_at": datetime.now() + timedelta(hours=1)
+        }
         
         return data
 
     except Exception as e:
-        logger.error("Failed to execute screener scan: %s", e, exc_info=True)
+        logger.error(f"Failed to execute screener scan: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to run screener scan.")
 
 @app.get("/api/market/overview")
-async def get_market_overview(request: Request, api_key: str = Depends(verify_api_key)):
+def get_market_overview(request: Request, category: str = "nifty50", api_key: str = Depends(verify_api_key)):
     """
-    Returns market overview: major indices, top gainers, and top losers.
-    Results are cached in-memory for 5 minutes.
+    Returns market overview: major indices, top gainers, and top losers for the selected universe.
+    Results are cached in-memory for 5 minutes per category.
     """
     global market_overview_cache
     
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     
-    if datetime.now() < market_overview_cache["expires_at"] and market_overview_cache["data"] is not None:
-        logger.info("Serving market overview from cache")
-        return market_overview_cache["data"]
+    cache_entry = market_overview_cache.get(category)
+    if cache_entry and datetime.now() < cache_entry["expires_at"]:
+        logger.info(f"Serving market overview for {category} from cache")
+        return cache_entry["data"]
         
     try:
-        import sys
-        import os
-        parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        if parent_dir not in sys.path:
-            sys.path.append(parent_dir)
-            
         from execution.market_overview import fetch_market_overview
         
-        logger.info("Executing market overview scan (cache miss)")
-        data = fetch_market_overview()
+        logger.info(f"Executing {category} market overview scan (cache miss)")
+        data = fetch_market_overview(category)
         
         if data.get("error"):
             raise HTTPException(status_code=500, detail=data["error"])
             
-        market_overview_cache["data"] = data
-        market_overview_cache["expires_at"] = datetime.now() + timedelta(minutes=5)
+        market_overview_cache[category] = {
+            "data": data,
+            "expires_at": datetime.now() + timedelta(minutes=5)
+        }
         
         return data
 
     except Exception as e:
-        logger.error("Failed to execute market overview: %s", e, exc_info=True)
+        logger.error(f"Failed to execute market overview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch market overview.")
 
 vcp_cache = {
@@ -261,7 +275,7 @@ vcp_cache = {
 }
 
 @app.get("/api/screener/vcp")
-async def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
     """
     Runs the Volatility Contraction Pattern (VCP) screener on NSE 500 stocks.
     Results are cached in-memory for 1 hour since scanning 500 stocks is expensive.
@@ -302,7 +316,8 @@ async def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_k
         raise HTTPException(status_code=500, detail="Failed to run VCP screener scan.")
 
 @app.get("/api/market/nse500")
-async def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
+def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
+    print("DEBUG: get_nse500_list called")
     """Returns a list of NSE 500 symbols to populate UI dropdowns."""
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)

@@ -66,3 +66,7 @@ Given an Indian stock ticker symbol (NSE format `TICKER.NS` or BSE index like `^
 
 - `yfinance` often returns `None` for many fundamental fields for Indian stocks. Always handle with `.get()` and provide sensible defaults.
 - Use `info` attribute for snapshot data; use `.history()` for OHLCV and technical calculations.
+- **Context size constraint**: The JSON output is used as a tool response by the Antigravity agent. Responses above ~5KB cause a `trajectory truncation error: could not convert a single message before hitting truncation`. To stay safe:
+  - `chart` array: cap at **30 rows** (not 100).
+  - `summary` (longBusinessSummary): truncate to **300 characters**.
+  - Do not include raw option-chain strike arrays in the output — only extracted metrics (max OI strike, max pain).

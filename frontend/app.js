@@ -1,21 +1,93 @@
 // app.js
-console.log("🚀 APP.JS LOADED! BROWSER CACHE CLEARED! 🚀");
+console.log("🚀 APP.JS LOADED v4! 🚀");
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
 
+// Backend (uvicorn) always on 8000; static file server on 8081
+// window.API_BASE used by all fetch calls
+window.API_BASE = isLocal ? window.location.protocol + "//" + window.location.hostname + ":8000" : "";
+
 let chartInstance = null;
-let activeApiPort = isLocal ? "8000" : ""; // Strictly 8000 for backend
+let activeApiPort = "8000"; // Legacy reference — use window.API_BASE instead
+let currentMomentumCategory = localStorage.getItem('lastCategory') || 'nifty50';
+let currentSymbol = null; // To prevent race conditions
+
+window.changeMomentumCategory = function(cat) {
+  currentMomentumCategory = cat;
+  localStorage.setItem('lastCategory', cat);
+  
+  // Update button active states
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(cat)) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  
+  // Reload data
+  loadMarketOverview(cat);
+  loadScreenerCrossovers(cat);
+};
 
 document.addEventListener("DOMContentLoaded", () => {
   // Populate the dropdown with NSE 500 stocks
   loadNse500Stocks();
   
-  // Initiate the background fetch for the crossover screener
-  loadScreenerData();
-  // Initiate the background fetch for market overview
-  loadMarketOverview();
-  // Initiate the background fetch for VCP screener
-  loadVcpScreenerData();
+  // Stagger background fetches to avoid saturating backend/API
+  const urlParams = new URLSearchParams(window.location.search);
+  const skipScans = urlParams.get('noscan') === '1';
+  const lastStock = localStorage.getItem('lastStock');
+  
+  if (lastStock) {
+     const select = document.getElementById("stockSelector");
+     if (select && !Array.from(select.options).some(o => o.value === lastStock)) {
+        const tempOpt = document.createElement("option");
+        tempOpt.value = lastStock;
+        tempOpt.text = lastStock;
+        select.add(tempOpt);
+     }
+     if (select) select.value = lastStock;
+     loadStockDashboard(lastStock);
+  } else if (!skipScans) {
+    // Execute calls sequentially with delays instead of scattered timeouts
+    // This prevents race conditions with layout loading and overlay hiding
+    showOverlay("loadingOverlay");
+    const initData = async () => {
+      // Set active state for the saved category
+      const buttons = document.querySelectorAll('.cat-btn');
+      buttons.forEach(btn => {
+        if (btn.getAttribute('onclick').includes(`'${currentMomentumCategory}'`)) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      // Fire and forget - do not await these so the UI comes up instantly
+      // The individual render methods handle populating the DOM when ready
+      loadScreenerData(currentMomentumCategory).catch(e => console.error(e));
+      loadMarketOverview(currentMomentumCategory).catch(e => console.error(e));
+      
+      const initialDashboard = document.getElementById("initialDashboard");
+      const stockSelector = document.getElementById("stockSelector");
+      if (initialDashboard && (!stockSelector || !stockSelector.value)) {
+        initialDashboard.style.display = "flex";
+      }
+      hideOverlay("loadingOverlay");
+      
+      hideOverlay("loadingOverlay");
+      
+      // Load last since it's heavier
+      try { await loadVcpScreenerData(); } catch(e){}
+    };
+    initData();
+  } else {
+    console.log("? Background scans skipped via noscan=1 parameter.");
+    hideOverlay("loadingOverlay");
+    const initialDashboard = document.getElementById("initialDashboard");
+    if (initialDashboard) initialDashboard.style.display = "flex";
+  }
 
   const stockSelector = document.getElementById("stockSelector");
   const stockSearch = document.getElementById("stockSearch");
@@ -35,6 +107,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
+    // Fix: Search on Enter
+    stockSearch.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        const term = stockSearch.value.toUpperCase();
+        const options = stockSelector.options;
+        for (let i = 1; i < options.length; i++) {
+          const txt = options[i].text.toUpperCase();
+          const val = options[i].value.toUpperCase();
+          if (txt.includes(term) || val.includes(term)) {
+            stockSelector.value = options[i].value;
+            loadStockDashboard(options[i].value);
+            break;
+          }
+        }
+      }
+    });
+
     // Clear search on selection
     stockSelector.addEventListener("change", () => {
       stockSearch.value = "";
@@ -47,47 +136,14 @@ document.addEventListener("DOMContentLoaded", () => {
   
   stockSelector.addEventListener("change", async (e) => {
     const symbol = e.target.value;
-    if (!symbol) return;
-    
-    showOverlay("loadingOverlay");
-    hideOverlay("errorOverlay");
-    document.getElementById("dashboardEl").style.display = "none";
-    
-    // Hide initial dashboard and parts
-    const initialDashboard = document.getElementById("initialDashboard");
-    if (initialDashboard) initialDashboard.style.display = "none";
-    const screenerBox = document.getElementById("screenerBox");
-    if (screenerBox) screenerBox.style.display = "none";
-    
-    try {
-      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-      const baseUrl = isLocal ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
-      const fetchUrl = `${baseUrl}/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
-
-      const resp = await fetch(fetchUrl, {
-        headers: { "X-API-Key": window.CONFIG.API_KEY },
-        cache: "no-store"
-      });
-      
-      let data;
-      if (resp.ok) {
-        data = await resp.json();
-      } else {
-        const errorText = await resp.text();
-        throw new Error(`Error fetching data: ${resp.status} - ${errorText}`);
-      }
-      
-      renderDashboard(data);
-    } catch (err) {
-      console.error(err);
-      showError(err.message);
-    }
+    if (symbol) loadStockDashboard(symbol);
   });
 
   const backBtn = document.getElementById("backToDashboardBtn");
   if (backBtn) {
     backBtn.addEventListener("click", () => {
       stockSelector.value = ""; // Reset dropdown
+      localStorage.removeItem('lastStock'); // Forget it
       document.getElementById("dashboardEl").style.display = "none";
       const initialDashboard = document.getElementById("initialDashboard");
       if (initialDashboard) initialDashboard.style.display = "flex";
@@ -96,22 +152,119 @@ document.addEventListener("DOMContentLoaded", () => {
       // but just in case we explicitly hid it before:
       const screenerBox = document.getElementById("screenerBox");
       if (screenerBox) screenerBox.style.display = "block";
+      const vcpBox = document.getElementById("vcpBox");
+      if (vcpBox) vcpBox.style.display = "block";
+      
+      // Ensure data is loaded
+      if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
+         loadScreenerData(currentMomentumCategory);
+         loadMarketOverview(currentMomentumCategory);
+      }
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }
 });
 
-async function loadScreenerData() {
+async function loadStockDashboard(symbol) {
+  if (!symbol) return;
+  
+  localStorage.setItem('lastStock', symbol);
+  
+  showOverlay("loadingOverlay");
+  hideOverlay("errorOverlay");
+  document.getElementById("dashboardEl").style.display = "none";
+  
+  // Hide initial dashboard and parts
+  const initialDashboard = document.getElementById("initialDashboard");
+  if (initialDashboard) initialDashboard.style.display = "none";
+  const screenerBox = document.getElementById("screenerBox");
+  if (screenerBox) screenerBox.style.display = "none";
+  
+  try {
+    currentSymbol = symbol;
+    // Backend (uvicorn) is on port 8000; frontend HTTP server is on 8081
+    const fetchUrl = `${window.API_BASE}/api/analyze/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
+    
+    // Fix: Search on Enter
+    if (stockSearch) {
+      stockSearch.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          const firstVisible = Array.from(stockSelector.options).find(o => o.style.display !== "none" && o.value !== "");
+          if (firstVisible) {
+            stockSelector.value = firstVisible.value;
+            loadStockDashboard(firstVisible.value);
+          }
+        }
+      });
+    }
+
+    console.log(`📡 Fetching from: ${fetchUrl}`);
+
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      cache: "no-store"
+    });
+    
+    // Race condition check
+    if (symbol !== currentSymbol) {
+      console.warn(`🛑 Abandoning request for ${symbol} as ${currentSymbol} is now active.`);
+      return;
+    }
+
+    let data;
+    if (resp.ok) {
+      data = await resp.json();
+    } else {
+      const errorText = await resp.text();
+      throw new Error(`Error fetching data: ${resp.status} - ${errorText}`);
+    }
+    
+    renderDashboard(data);
+  } catch (err) {
+    console.error(err);
+    showError(err.message);
+  }
+}
+
+/**
+ * GLOBAL: Change Momentum Category
+ */
+window.changeMomentumCategory = function(category) {
+  if (category === currentMomentumCategory) return;
+  
+  console.log(`🔄 Switching category to: ${category}`);
+  currentMomentumCategory = category;
+  localStorage.setItem('lastCategory', category);
+  
+  // Update UI buttons
+  const buttons = document.querySelectorAll('.cat-btn');
+  buttons.forEach(btn => {
+    if (btn.getAttribute('onclick').includes(`'${category}'`)) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  
+  // Show localized loaders
+  document.getElementById("screenerTableBody").innerHTML = `<tr><td colspan="4" style="text-align:center;"><div class="pulse-loader">Refreshing ${category}...</div></td></tr>`;
+  document.getElementById("gainersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
+  document.getElementById("losersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
+  
+  // Trigger refreshes
+  loadScreenerData(category);
+  loadMarketOverview(category);
+};
+
+async function loadScreenerData(category = 'nifty50') {
   const tableBody = document.getElementById("screenerTableBody");
   const screenerBox = document.getElementById("screenerBox");
   
   if (!tableBody || !screenerBox) return;
   
   try {
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const BASE = isLocal ? "http://127.0.0.1:8000/api/screener/crossovers" : "/api/screener/crossovers";
-    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
+    const fetchUrl = `${window.API_BASE}/api/screener/crossovers?category=${category}&v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -136,10 +289,10 @@ async function loadScreenerData() {
         
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td><strong>${item.symbol.replace(/%5E/i, '^')}</strong></td>
-          <td class="${cssClass}">${item.type}</td>
-          <td style="font-family: var(--font-mono)">${item.price}</td>
-          <td>${item.date}</td>
+          <td><strong>${sanitize(item.symbol.replace(/%5E/i, '^'))}</strong></td>
+          <td class="${sanitize(cssClass)}">${sanitize(item.type)}</td>
+          <td style="font-family: var(--font-mono)">${sanitize(item.price)}</td>
+          <td>${sanitize(item.date)}</td>
         `;
         
         tr.addEventListener("click", () => {
@@ -165,13 +318,11 @@ async function loadScreenerData() {
     } else {
       tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;">No recent crossovers found.</td></tr>`;
     }
-  } catch (e) {
-    console.error("Failed to fetch screener data", e);
-    const stockSelector = document.getElementById("stockSelector");
-    if (!stockSelector || !stockSelector.value) {
-      screenerBox.style.display = "block";
+  } catch (err) {
+    if (tableBody) {
+      tableBody.innerHTML = `<tr><td colspan="4" style="color:red; text-align:center; padding:20px;">Error: ${err.message}</td></tr>`;
     }
-    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--negative)">Failed to load screener data.</td></tr>`;
+    console.error("Screener fetch error:", err);
   }
 }
 
@@ -185,9 +336,7 @@ async function loadVcpScreenerData() {
   vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for VCP...</div></td></tr>`;
   
   try {
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const BASE = isLocal ? "http://127.0.0.1:8000/api/screener/vcp" : "/api/screener/vcp";
-    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
+    const fetchUrl = `${window.API_BASE}/api/screener/vcp?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -204,7 +353,7 @@ async function loadVcpScreenerData() {
         tr.style.cursor = "pointer";
         tr.innerHTML = `
           <td><strong>${sanitize(stock.symbol)}</strong></td>
-          <td class="text-green">${fmt(stock.price)}</td>
+          <td class="text-green">${sanitize(fmt(stock.price))}</td>
         `;
         tr.addEventListener("click", () => {
            const select = document.getElementById("stockSelector");
@@ -224,9 +373,11 @@ async function loadVcpScreenerData() {
       vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;">No VCP patterns detected today</td></tr>`;
     }
 
-  } catch (e) {
-    console.error("Failed to load VCP screener list", e);
-    vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--negative)">Failed to load VCP screener.</td></tr>`;
+  } catch (err) {
+    if (vcpBody) {
+      vcpBody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center; padding:20px;">Error: ${err.message}</td></tr>`;
+    }
+    console.error("VCP fetch error:", err);
   }
 }
 
@@ -238,9 +389,7 @@ async function loadNse500Stocks() {
   if (!stockSelector) return;
   
   try {
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const BASE = isLocal ? "http://127.0.0.1:8000/api/market/nse500" : "/api/market/nse500";
-    const fetchUrl = `${BASE}?v=${new Date().getTime()}`; // Cache buster
+    const fetchUrl = `${window.API_BASE}/api/market/nse500?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -272,11 +421,9 @@ async function loadNse500Stocks() {
   }
 }
 
-async function loadMarketOverview() {
+async function loadMarketOverview(category = 'nifty50') {
   try {
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
-    const BASE = isLocal ? "http://127.0.0.1:8000/api/market/overview" : "/api/market/overview";
-    const fetchUrl = `${BASE}?v=${new Date().getTime()}`;
+    const fetchUrl = `${window.API_BASE}/api/market/overview?category=${category}&v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -287,25 +434,21 @@ async function loadMarketOverview() {
     const data = await resp.json();
 
     renderMarketOverview(data);
-    hideOverlay("loadingOverlay");
   } catch (e) {
     console.error("Failed to load market overview", e);
+    const errText = `Error: ${e.message || e}`;
     const indicesRow = document.getElementById("indicesRow");
-    if (indicesRow) {
-      indicesRow.innerHTML = `<div class="pulse-loader" style="color: var(--negative)">Failed to load market data.</div>`;
-    }
-    hideOverlay("loadingOverlay");
+    if (indicesRow) indicesRow.innerHTML = `<div style="color: red; padding: 20px;">${errText}</div>`;
+    
+    const gainersBody = document.getElementById("gainersTableBody");
+    if (gainersBody) gainersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${errText}</td></tr>`;
+    
+    const losersBody = document.getElementById("losersTableBody");
+    if (losersBody) losersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${errText}</td></tr>`;
   }
 }
 
 function renderMarketOverview(data) {
-  // Only show if no stock is selected
-  const stockSelector = document.getElementById("stockSelector");
-  if (!stockSelector || !stockSelector.value) {
-    const initialDashboard = document.getElementById("initialDashboard");
-    if (initialDashboard) initialDashboard.style.display = "flex";
-  }
-
   // Render Indices
   const indicesRow = document.getElementById("indicesRow");
   if (data.indices && data.indices.length > 0 && indicesRow) {
@@ -318,14 +461,14 @@ function renderMarketOverview(data) {
       const card = document.createElement("div");
       card.className = "index-card";
       card.innerHTML = `
-        <div class="idx-name">${sanitize(idx.name)}</div>
-        <div class="idx-price-wrap">
-          <div class="idx-price">${fmt(idx.price)}</div>
-          <div class="idx-change ${changeClass}">${sign}${(idx.change_pct != null ? idx.change_pct.toFixed(2) : '0.00')}%</div>
+        <div class="index-name">${sanitize(idx.name)}</div>
+        <div class="index-price-wrap">
+          <div class="index-price">${sanitize(fmt(idx.price))}</div>
+          <div class="index-change ${sanitize(changeClass)}">${sanitize(sign)}${(idx.change_pct != null ? idx.change_pct.toFixed(2) : '0.00')}%</div>
         </div>
         <div class="idx-range">
-          <span>L: ${fmt(idx.low).replace(/₹/, '')}</span>
-          <span>H: ${fmt(idx.high).replace(/₹/, '')}</span>
+          <span>L: ${sanitize(fmt(idx.low).replace(/₹/, ''))}</span>
+          <span>H: ${sanitize(fmt(idx.high).replace(/₹/, ''))}</span>
         </div>
       `;
       card.style.cursor = "pointer";
@@ -356,8 +499,8 @@ function renderMarketOverview(data) {
       tr.style.cursor = "pointer";
       tr.innerHTML = `
         <td><strong>${sanitize(g.symbol)}</strong></td>
-        <td>${fmt(g.price)}</td>
-        <td class="text-green">+${(g.change_pct != null ? g.change_pct.toFixed(2) : '0.00')}%</td>
+        <td>${sanitize(fmt(g.price))}</td>
+        <td class="text-green">${g.change_pct >= 0 ? '+' : ''}${(g.change_pct != null ? g.change_pct.toFixed(2) : '0.00')}%</td>
       `;
       tr.addEventListener("click", () => {
          const select = document.getElementById("stockSelector");
@@ -373,10 +516,7 @@ function renderMarketOverview(data) {
       });
       gainersBody.appendChild(tr);
     });
-  } else if (gainersBody) {
-    gainersBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">No gainers data available</td></tr>`;
   }
-
   // Render Top Losers
   const losersBody = document.getElementById("losersTableBody");
   if (data.top_losers && data.top_losers.length > 0 && losersBody) {
@@ -386,8 +526,8 @@ function renderMarketOverview(data) {
       tr.style.cursor = "pointer";
       tr.innerHTML = `
         <td><strong>${sanitize(l.symbol)}</strong></td>
-        <td>${fmt(l.price)}</td>
-        <td class="text-red">${(l.change_pct != null ? l.change_pct.toFixed(2) : '0.00')}%</td>
+        <td>${sanitize(fmt(l.price))}</td>
+        <td class="text-red">${l.change_pct > 0 ? '+' : ''}${(l.change_pct != null ? l.change_pct.toFixed(2) : '0.00')}%</td>
       `;
       tr.addEventListener("click", () => {
          const select = document.getElementById("stockSelector");
@@ -440,112 +580,235 @@ function renderDashboard(data) {
   renderRelativeStrength(data);
   renderOptionsData(data);
   renderPerformance(data);
+  renderTrendTemplate(data);
 }
 
+// ─── CANDLESTICK CHART WITH EMA OVERLAYS ─────────────────────────────────────
 function renderChart(data) {
-  const chartData = data.chart || data.historical_prices || null;
-  const dates = chartData ? chartData.dates : [];
-  const prices = chartData ? chartData.closes : [];
-  const startPrice = prices[0] || 0;
-  const endPrice = prices[prices.length - 1] || 0;
-  const isUp = endPrice >= startPrice;
-  
-  const lineColor = isUp ? "#00FF66" : "#FF0055";
-  const gradStart = isUp ? "rgba(0, 255, 102, 0.4)" : "rgba(255, 0, 85, 0.4)";
-  
-  let existingChart = Chart.getChart("mainChart");
-  if (existingChart) {
-    existingChart.destroy();
+  const chartData = data.chart || {};
+  const dates   = chartData.dates   || [];
+  const opens   = chartData.opens   || [];
+  const highs   = chartData.highs   || [];
+  const lows    = chartData.lows    || [];
+  const closes  = chartData.closes  || [];
+  const ema20   = chartData.ema20   || [];
+  const ema50   = chartData.ema50   || [];
+  const ema200  = chartData.ema200  || [];
+
+  // Destroy previous chart
+  if (chartInstance) { try { chartInstance.destroy(); } catch(_){} chartInstance = null; }
+  const existing = Chart.getChart('candlestickChart') || Chart.getChart('mainChart');
+  if (existing) try { existing.destroy(); } catch(_) {}
+
+  const hasOHLC = opens.length > 0 && highs.length > 0 && lows.length > 0;
+
+  // --- Detect and Register chartjs-chart-financial plugins ---
+  if (typeof Chart !== 'undefined') {
+    if (window.CandlestickController) {
+      Chart.register(window.CandlestickController, window.OhlcController, window.CandlestickElement, window.OhlcElement);
+    }
   }
-  
-  if (chartInstance) {
-    chartInstance.destroy();
-  }
-  
-  const ctx = document.getElementById("mainChart").getContext("2d");
-  
-  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-  gradient.addColorStop(0, gradStart);
-  gradient.addColorStop(1, "rgba(5, 5, 10, 0)");
 
-  // 50-day moving average
-  const ma50 = rollingMean(prices, 50);
+  let hasCandlestick = true; // Force true since we include Candlestick CDN scripts unconditionally
+  console.log(`📊 Candlestick plugin available: ${hasCandlestick}, hasOHLC: ${hasOHLC}`);
 
-  // 20-day exponential moving average
-  const ema20 = calculateEMA(prices, 20);
+  // Format x-axis labels
+  const labels = dates.map(d => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+  });
 
-  chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: dates.map(d => {
-        const dt = new Date(d);
-        return dt.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
-      }),
-      datasets: [
-        {
-          label: "Close Price",
-          data: prices,
-          borderColor: lineColor,
-          backgroundColor: gradient,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 6,
-          fill: true,
-          tension: 0.2
-        },
-        {
-          label: "20-Day EMA",
-          data: ema20,
-          borderColor: "rgba(255, 0, 85, 0.8)", // Bright magenta/pink for EMA
-          borderWidth: 1.5,
-          pointRadius: 0,
-          fill: false,
-          tension: 0.4
-        },
-        {
-          label: "50-Day MA",
-          data: ma50,
-          borderColor: "rgba(0, 240, 255, 0.4)", // Dimming cyan slightly so it doesn't overpower
-          borderWidth: 1.5,
-          borderDash: [5, 5],
-          pointRadius: 0,
-          fill: false,
-          tension: 0.4
-        }
-      ]
+  const tooltipDefaults = {
+    backgroundColor: 'rgba(10, 12, 28, 0.96)',
+    titleColor: '#607d8b',
+    bodyColor: '#e8eaf6',
+    borderColor: 'rgba(0, 229, 255, 0.3)',
+    borderWidth: 1,
+    padding: 14,
+    displayColors: true,
+  };
+
+  const scalesDefaults = {
+    x: {
+      type: 'timeseries',
+      grid: { display: false, color: 'rgba(255,255,255,0.02)' },
+      ticks: { 
+        maxTicksLimit: 8, 
+        color: '#607d8b', 
+        font: { size: 10 },
+        source: 'data'
+      }
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        mode: 'index',
-        intersect: false,
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: "rgba(18, 18, 28, 0.9)",
-          titleColor: "#8A9AAB",
-          bodyColor: "#FFFFFF",
-          borderColor: "rgba(0, 240, 255, 0.3)",
-          borderWidth: 1,
-          padding: 12,
-          displayColors: true
-        }
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { maxTicksLimit: 6, color: "#8A9AAB" }
-        },
-        y: {
-          position: "right",
-          grid: { color: "rgba(255, 255, 255, 0.05)" },
-          ticks: { color: "#8A9AAB" }
-        }
+    y: {
+      position: 'right',
+      grid: { color: 'rgba(255,255,255,0.04)' },
+      ticks: { 
+        color: '#90a4ae', 
+        font: { size: 10 },
+        callback: v => '₹' + v.toLocaleString('en-IN') 
       }
     }
+  };
+
+  if (hasCandlestick && hasOHLC) {
+    // ── True Candlestick Chart ──────────────────────────
+    const candlestickCtx = document.getElementById('candlestickChart');
+    if (!candlestickCtx) return;
+    const ctx = candlestickCtx.getContext('2d');
+
+    const chartData = dates.map((d, i) => ({
+      x: new Date(d).getTime(),
+      o: opens[i],
+      h: highs[i],
+      l: lows[i],
+      c: closes[i]
+    }));
+
+    const ema20Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema20[i] }));
+    const ema50Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema50[i] }));
+    const ema200Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema200[i] }));
+
+    chartInstance = new Chart(ctx, {
+      type: 'candlestick',
+      data: {
+        datasets: [
+          {
+            label: 'OHLC',
+            data: chartData,
+            color: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' },
+            borderColor: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' },
+            wickColor: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' }
+          },
+          { label: 'EMA 20',  data: ema20Data,  type: 'line', borderColor: '#ff9100', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1 },
+          { label: 'EMA 50',  data: ema50Data,  type: 'line', borderColor: '#00e5ff', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1 },
+          { label: 'EMA 200', data: ema200Data, type: 'line', borderColor: '#d32f2f', borderWidth: 1.2, borderDash: [4,4], pointRadius: 0, fill: false, tension: 0.1 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: tooltipDefaults },
+        scales: scalesDefaults
+      }
+    });
+  } else {
+    // ── Fallback: Line Close + EMA lines ──────────────────
+    const canvasId = document.getElementById('candlestickChart') ? 'candlestickChart' : 'mainChart';
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const startP = closes[0] || 0;
+    const endP   = closes[closes.length - 1] || 0;
+    const isUp   = endP >= startP;
+    const lineColor = isUp ? '#00e676' : '#ff003c';
+    const gradStart = isUp ? 'rgba(0,230,118,0.35)' : 'rgba(255,0,60,0.35)';
+
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 380);
+    gradient.addColorStop(0, gradStart);
+    gradient.addColorStop(1, 'rgba(4,4,12,0)');
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Close', data: closes,
+            borderColor: lineColor, backgroundColor: gradient,
+            borderWidth: 2, pointRadius: 0, pointHoverRadius: 5,
+            fill: true, tension: 0.2
+          },
+          {
+            label: 'EMA 20', data: ema20,
+            borderColor: '#ff9100', borderWidth: 1.5,
+            pointRadius: 0, fill: false, tension: 0.3
+          },
+          {
+            label: 'EMA 50', data: ema50,
+            borderColor: '#00e5ff', borderWidth: 1.5,
+            pointRadius: 0, fill: false, tension: 0.3
+          },
+          {
+            label: 'EMA 200', data: ema200,
+            borderColor: '#ff003c', borderWidth: 1.5,
+            borderDash: [4, 4],
+            pointRadius: 0, fill: false, tension: 0.3
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: tooltipDefaults },
+        scales: scalesDefaults
+      }
+    });
+  }
+}
+
+// ─── TREND TEMPLATE CHECKLIST ─────────────────────────────────────────────────
+function renderTrendTemplate(data) {
+  const container = document.getElementById('trendTemplateContainer');
+  if (!container) return;
+
+  const tt = data.trend_template;
+  if (!tt) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;text-align:center;padding:2rem;">Trend Template data not available (indices only have technical criteria).</div>';
+    return;
+  }
+
+  const { checks, passed, total, score_pct } = tt;
+  const scoreClass = score_pct >= 70 ? 'strong' : score_pct >= 40 ? 'medium' : 'weak';
+  const scoreLabel = score_pct >= 70 ? '🔥 Strong Setup' : score_pct >= 40 ? '⚡ Approaching' : '⚠ Weak Setup';
+
+  // Group checks by group
+  const grouped = {};
+  (checks || []).forEach(c => {
+    if (!grouped[c.group]) grouped[c.group] = [];
+    grouped[c.group].push(c);
   });
+
+  const groups = ['Technical', 'Fundamental', 'Other'];
+
+  const groupIcons = {
+    'Technical':    '📈',
+    'Fundamental':  '💰',
+    'Other':        '🔍'
+  };
+
+  let innerHtml = `
+    <div class="trend-template-header">
+      <div class="trend-template-icon">
+        <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      </div>
+      <div>
+        <div class="trend-template-title">Trend Template</div>
+        <div class="trend-template-subtitle">Minervini / Weinstein Criteria — ${passed}/${total} passed</div>
+      </div>
+      <div class="trend-score-badge ${sanitize(scoreClass)}">${score_pct}% <span style="font-size:0.65rem;display:block;text-align:center;font-weight:500;margin-top:2px;">${sanitize(scoreLabel)}</span></div>
+    </div>
+    <div class="checklist-groups">`;
+
+  groups.forEach(grp => {
+    const items = grouped[grp];
+    if (!items || items.length === 0) return;
+    innerHtml += `<div class="checklist-group"><div class="checklist-group-title">${groupIcons[grp] || ''} ${sanitize(grp)}</div>`;
+    items.forEach(c => {
+      const iconClass = c.pass === true ? 'pass' : c.pass === false ? 'fail' : 'pending';
+      const icon      = c.pass === true ? '✓'   : c.pass === false ? '✗'   : '–';
+      innerHtml += `
+        <div class="checklist-item">
+          <div class="check-icon ${sanitize(iconClass)}">${icon}</div>
+          <div class="checklist-text">${sanitize(c.label)}</div>
+          <div class="checklist-value bold-val">${sanitize(c.value || '')}</div>
+        </div>`;
+    });
+    innerHtml += '</div>';
+  });
+
+  innerHtml += '</div>';
+  container.innerHTML = innerHtml;
 }
 
 function renderMetrics(data) {
@@ -847,13 +1110,13 @@ function renderOptionsData(data) {
 
   box.style.display = "block"; // Always show the box to indicate functionality exists
   
-  if (!data.options_data) {
+  if (!data.options_data && !data.implied_move_data) {
     grid.innerHTML = `<div class="data-row" style="color: var(--text-dim);">Options data unavailable (Market Data Feed disconnected).</div>`;
     return;
   }
   
-  const opt = data.options_data;
-  if (!opt.current && !opt.next) {
+  const opt = data.options_data || {};
+  if (!opt.current && !opt.next && !data.implied_move_data) {
     document.getElementById("optionsGrid").innerHTML = `<div class="data-row" style="color: var(--text-dim);">No options data available for this symbol.</div>`;
     box.style.display = "block";
     return;
@@ -883,6 +1146,21 @@ function renderOptionsData(data) {
 
   if (opt.current) addExp("Current Expiry", opt.current);
   if (opt.next) addExp("Next Expiry", opt.next);
+
+  // --- ADDED: Implied Move UI ---
+  if (data.implied_move_data) {
+    const im = data.implied_move_data;
+    items.push({
+      label: `Implied Move (${im.expiry || "Near Expiry"})`,
+      value: `${im.implied_move.toFixed(2)}%`,
+      highlight: "text-up"
+    });
+    items.push({
+      label: `Straddle Price (ATM Buy)`,
+      value: fmt(im.straddle),
+      highlight: ""
+    });
+  }
 
   document.getElementById("optionsGrid").innerHTML = items.map(item =>
     `<div class="data-row">

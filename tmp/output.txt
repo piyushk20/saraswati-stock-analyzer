@@ -1,0 +1,18 @@
+2026-03-20 13:17:04,475 - INFO - Analyzing RELIANCE.NS...
+2026-03-20 13:17:08,621 - INFO - Hitting lander: https://www.nseindia.com/option-chain
+2026-03-20 13:17:09,983 - INFO - Lander response: 200, Cookies extracted: 3
+2026-03-20 13:17:09,983 - INFO - Attempting to fetch contract info for RELIANCE to get expiries
+2026-03-20 13:17:10,124 - INFO - Fetching V3 option data for 30-Mar-2026
+2026-03-20 13:17:10,304 - INFO - Fetching V3 option data for 28-Apr-2026
+c:\Users\HP\indianstock\execution\analyze_stock.py:151: FutureWarning: 'M' is deprecated and will be removed in a future version, please use 'ME' instead.
+  m_df = df_daily['Close'].resample('M').last()
+DEBUG: Successfully imported get_nse_option_chain from execution.nse_options
+Testing analyze('RELIANCE.NS')...
+DEBUG: Calculating RSI for RELIANCE.NS
+DEBUG: RSI Results for RELIANCE.NS: {'daily': 55.89, 'weekly': 35.58, 'monthly': 58.95}
+Chart keys: ['dates', 'opens', 'highs', 'lows', 'closes', 'volumes', 'ema20', 'ema50', 'ema200']
+Dates length: 90
+Opens length: 90
+Trend Template found: True
+TT summary: No summary
+TT criteria count: 0

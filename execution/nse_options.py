@@ -88,15 +88,12 @@ class NSEFetcher:
                     if expiry_dates:
                         break
                     else:
-                        print(f"DEBUG: No expiry dates found in response for {clean_symbol}. Status={response.status_code}")
                         logger.warning(f"No expiry dates found in response for {clean_symbol}")
                 elif response.status_code in [401, 403]:
-                    print(f"DEBUG: Status {response.status_code} for {clean_symbol}. Resetting session.")
                     logger.warning(f"Status {response.status_code} for {clean_symbol}. Resetting session.")
                     self.cookies_initialized = False
                     time.sleep(1)
             except Exception as e:
-                print(f"DEBUG: Error fetching contract info: {e}")
                 logger.error(f"Error fetching contract info: {e}")
                 self.cookies_initialized = False
                 time.sleep(1)
@@ -104,7 +101,6 @@ class NSEFetcher:
         if not expiry_dates:
             logger.warning(f"Could not retrieve expiry dates for {clean_symbol}")
             return {"current": None, "next": None}
-
 
         current_expiry = expiry_dates[0]
         next_expiry = expiry_dates[1] if len(expiry_dates) > 1 else None
@@ -125,21 +121,24 @@ class NSEFetcher:
                     res_data = res.json()
                     records = res_data.get("records", {})
                     exp_data = records.get("data", [])
+                    underlying_price = records.get("underlyingValue", 0)
                     if exp_data:
-                        options_data[exp_key] = self._extract_metrics(exp_data, exp_date)
+                        options_data[exp_key] = self._extract_metrics(exp_data, exp_date, underlying_price)
             except Exception as e:
                 logger.error(f"Error fetching v3 data for {exp_date}: {e}")
                 
         return options_data
 
-    def _extract_metrics(self, exp_data, exp_date):
-        """Extracts Max OI strikes and Max Pain for a specific expiry array."""
+    def _extract_metrics(self, exp_data, exp_date, underlying_price):
+        """Extracts Max OI strikes, Max Pain, and ATM Straddle for a specific expiry array."""
         try:
             max_call_oi = 0; max_call_strike = 0
             max_put_oi = 0; max_put_strike = 0
             
+            strikes = []
             for item in exp_data:
                 strike = item.get("strikePrice", 0)
+                strikes.append(strike)
                 ce = item.get("CE", {})
                 if ce:
                     ce_oi = ce.get("openInterest", 0)
@@ -152,9 +151,31 @@ class NSEFetcher:
                     if pe_oi > max_put_oi:
                         max_put_oi = pe_oi
                         max_put_strike = strike
-                        
+            
+            # ATM Straddle & Implied Move
+            straddle_price = 0
+            implied_move = 0
+            atm_strike = 0
+            
+            if underlying_price > 0 and strikes:
+                atm_strike = min(strikes, key=lambda x: abs(x - underlying_price))
+                atm_item = next((item for item in exp_data if item.get("strikePrice") == atm_strike), None)
+                if atm_item:
+                    ce_ask = atm_item.get("CE", {}).get("askPrice", 0)
+                    pe_ask = atm_item.get("PE", {}).get("askPrice", 0)
+                    if not ce_ask: ce_ask = atm_item.get("CE", {}).get("lastPrice", 0)
+                    if not pe_ask: pe_ask = atm_item.get("PE", {}).get("lastPrice", 0)
+                    
+                    straddle_price = float(ce_ask) + float(pe_ask)
+                    
+                    try:
+                        # Simple Implied Move for the expiry: (Straddle / Price) * 100
+                        implied_move = (straddle_price / underlying_price) * 100
+                    except Exception:
+                        pass
+
             # Simplistic Max Pain Calculation
-            strikes = sorted(list(set(item.get("strikePrice") for item in exp_data)))
+            strikes = sorted(list(set(strikes)))
             min_pain = float('inf')
             max_pain_strike = 0
             for potential_pain_strike in strikes:
@@ -173,9 +194,13 @@ class NSEFetcher:
                     
             return {
                 "expiry": exp_date,
+                "underlying_price": round(underlying_price, 2),
                 "max_call_oi_strike": max_call_strike if max_call_strike > 0 else None,
                 "max_put_oi_strike": max_put_strike if max_put_strike > 0 else None,
-                "max_pain": max_pain_strike if max_pain_strike > 0 else None
+                "max_pain": max_pain_strike if max_pain_strike > 0 else None,
+                "straddle": round(straddle_price, 2) if straddle_price > 0 else None,
+                "implied_move": round(implied_move, 4) if implied_move > 0 else None,
+                "atm_strike": atm_strike
             }
         except Exception as e:
             logger.error(f"Error parsing option data metrics: {e}")

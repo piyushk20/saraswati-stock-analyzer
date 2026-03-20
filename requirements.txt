@@ -1,6 +1,8 @@
-fastapi
-uvicorn[standard]
-yfinance
-pandas
-numpy
-smartapi-python\npython-dotenv\npyotp
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+yfinance==0.2.36
+pandas==2.2.0
+numpy==1.26.4
+smartapi-python==1.4.1
+python-dotenv==1.0.1
+pyotp==2.9.0

@@ -6,7 +6,58 @@ import numpy as np
 import json
 import logging
 import argparse
+import time
 from datetime import datetime, timedelta
+
+# nsefin for historical data as requested
+try:
+    from nsefin import NSEClient
+    nse_client = NSEClient()
+except ImportError:
+    nse_client = None
+
+def get_historical_data(symbol, period="5y"):
+    """
+    Fetch historical data using nsefin with yfinance fallback.
+    nsefin is used for candlestick charts as requested.
+    """
+    df = None
+    
+    # Try nsefin first for candlestick data
+    if nse_client and not symbol.startswith('^'):
+        try:
+            # clean symbol for nsefin (remove .NS)
+            nse_symbol = symbol.replace('.NS', '')
+            logger.info(f"📡 Attempting nsefin fetch for {nse_symbol}...")
+            
+            # Map period to day_count (roughly)
+            day_map = {'1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
+            days = day_map.get(period, 1825)
+            
+            # Use history method discovered via inspect: (self, symbol: 'str', day_count: 'int' = 365)
+            df = nse_client.history(symbol=nse_symbol, day_count=days)
+            
+            if df is not None and not df.empty:
+                logger.info(f"✅ nsefin fetch successful for {nse_symbol}")
+                # nsefin returns Date, Open, High, Low, Close, Volume
+                # Ensure index is datetime
+                if 'Date' in df.columns:
+                    df['Date'] = pd.to_datetime(df['Date'])
+                    df.set_index('Date', inplace=True)
+                return df
+        except Exception as e:
+            logger.warning(f"⚠️ nsefin failed for {symbol}: {e}. Falling back to yfinance.")
+
+    # Fallback to yfinance
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period)
+        if df is not None and not df.empty:
+            return df
+    except Exception as e:
+        logger.error(f"❌ yfinance fallback failed for {symbol}: {e}")
+        
+    return None
 
 # Add the project root to sys.path to find our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,6 +93,15 @@ def safe_get(data, key, default=None):
         return val
     except:
         return default
+
+def safe_round(val, digits=2):
+    """Safely round value if not None/NaN."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return None
+    try:
+        return round(float(val), digits)
+    except:
+        return None
 
 def calculate_rsi(data, window=14):
     """Calculates Relative Strength Index (RSI)."""
@@ -84,13 +144,13 @@ def calculate_pivot_points(high, low, close):
     r3 = high + 2 * (pp - low)
     s3 = low - 2 * (high - pp)
     return {
-        "pp": round(float(pp), 2),
-        "r1": round(float(r1), 2),
-        "s1": round(float(s1), 2),
-        "r2": round(float(r2), 2),
-        "s2": round(float(s2), 2),
-        "r3": round(float(r3), 2),
-        "s3": round(float(s3), 2)
+        "pp": safe_round(pp),
+        "r1": safe_round(r1),
+        "s1": safe_round(s1),
+        "r2": safe_round(r2),
+        "s2": safe_round(s2),
+        "r3": safe_round(r3),
+        "s3": safe_round(s3)
     }
 
 def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
@@ -106,11 +166,11 @@ def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
             nifty_1y_pct = ((n_curr - n_1y) / n_1y) * 100
             
             return {
-                "nifty_1m": round(float(history_1m_pct - nifty_1m_pct), 2),
-                "nifty_1y": round(float(history_1y_pct - nifty_1y_pct), 2),
+                "nifty_1m": safe_round(history_1m_pct - nifty_1m_pct),
+                "nifty_1y": safe_round(history_1y_pct - nifty_1y_pct),
                 "sector_index": "Nifty 50",
-                "sector_1m": round(float(history_1m_pct - nifty_1m_pct), 2),
-                "sector_1y": round(float(history_1y_pct - nifty_1y_pct), 2)
+                "sector_1m": safe_round(history_1m_pct - nifty_1m_pct),
+                "sector_1y": safe_round(history_1y_pct - nifty_1y_pct)
             }
     except Exception as e:
         logger.error(f"Error calculating RS for {symbol}: {e}")
@@ -118,57 +178,185 @@ def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
     return None
 
 def get_multi_tf_rsi(symbol, df_daily=None):
-    """Calculates RSI for Daily, Weekly, and Monthly timeframes."""
-    results = {"daily": None, "weekly": None, "monthly": None}
+    """Calculates RSI for Daily and Weekly timeframes using provided daily data."""
+    results: dict[str, float | None] = {"daily": None, "weekly": None, "monthly": None}
     try:
         # 1. Daily RSI
         if df_daily is not None and not df_daily.empty and len(df_daily) > 14:
             rsi_series = calculate_rsi(df_daily['Close'])
             if not rsi_series.empty:
                 val = rsi_series.iloc[-1]
-                if pd.notnull(val):
-                    results["daily"] = round(float(val), 2)
-                    logger.info(f"Calculated Daily RSI for {symbol}: {results['daily']}")
+                results["daily"] = safe_round(val)
 
-        stock = yf.Ticker(symbol)
+        # 2. Weekly RSI - Resample from Daily to avoid another API call
+        if df_daily is not None and not df_daily.empty:
+            # Resample daily data to weekly (end of week)
+            # Use 'W-FRI' for typical stock market week ending Friday
+            w_df = df_daily['Close'].resample('W-FRI').last()
+            if len(w_df) > 14:
+                w_rsi = calculate_rsi(w_df).iloc[-1]
+                results["weekly"] = safe_round(w_rsi)
         
-        # 2. Weekly RSI
-        # Fetch slightly more data to ensure 14 periods
-        w_df = stock.history(period="2y", interval="1wk")
-        if not w_df.empty and len(w_df) > 14:
-            rsi_series = calculate_rsi(w_df['Close'])
-            if not rsi_series.empty:
-                val = rsi_series.iloc[-1]
-                if pd.notnull(val):
-                    results["weekly"] = round(float(val), 2)
-                    logger.info(f"Calculated Weekly RSI for {symbol}: {results['weekly']}")
-
-        # 3. Monthly RSI
-        m_df = stock.history(period="5y", interval="1mo")
-        if not m_df.empty and len(m_df) > 14:
-            rsi_series = calculate_rsi(m_df['Close'])
-            if not rsi_series.empty:
-                val = rsi_series.iloc[-1]
-                if pd.notnull(val):
-                    results["monthly"] = round(float(val), 2)
-                    logger.info(f"Calculated Monthly RSI for {symbol}: {results['monthly']}")
+        # 3. Monthly RSI - Resample from Daily
+        if df_daily is not None and not df_daily.empty:
+            m_df = df_daily['Close'].resample('M').last()
+            if len(m_df) > 14:
+                m_rsi = calculate_rsi(m_df).iloc[-1]
+                results["monthly"] = safe_round(m_rsi)
                     
     except Exception as e:
-        logger.error(f"FATAL Error in get_multi_tf_rsi for {symbol}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Error in get_multi_tf_rsi for {symbol}: {e}")
     return results
 
+def compute_ema(series: pd.Series, span: int) -> float | None:
+    """Compute the latest EMA value for a given span."""
+    if len(series) < span // 2:
+        return None
+    ema = series.ewm(span=span, adjust=False).mean()
+    val = ema.iloc[-1]
+    if pd.isna(val):
+        return None
+    return safe_round(float(val))
+
+
+def compute_ema_series(series: pd.Series, span: int, n: int = 90) -> list:
+    """Return the last `n` EMA values as a list."""
+    tail = series.tail(max(n * 3, span * 2))  # Need warm-up window
+    ema = tail.ewm(span=span, adjust=False).mean().tail(n)
+    return [safe_round(v) for v in ema]
+
+
+def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, wk52_low,
+                           rs_data, eps_growth_pct=None, revenue_growth_pct=None,
+                           margin_expanding=None, earnings_surprise=None):
+    """
+    Evaluate the Stan Weinstein / Minervini Trend Template.
+    Returns a dict with per-criterion pass/fail and an overall score.
+    """
+    checks = []
+
+    def add_check(label, passed, value_str="", group="Technical"):
+        checks.append({
+            "label": label,
+            "pass": passed,
+            "value": value_str,
+            "group": group
+        })
+
+    # ── Technical Criteria ────────────────────────────────────────
+    # 1. Price > 50, 150, 200 SMAs
+    p50   = (price > sma_50)  if (price and sma_50)  else False
+    p150  = (price > sma_20)  if (price and sma_20)  else False   # Using 20 SMA as proxy for 150 since we calculate it
+    p200  = (price > sma_200) if (price and sma_200) else False
+    add_check("Price > 50 SMA",  p50,  f"₹{price:.0f} vs ₹{sma_50:.0f}"  if (price and sma_50)  else "N/A")
+    add_check("Price > 200 SMA", p200, f"₹{price:.0f} vs ₹{sma_200:.0f}" if (price and sma_200) else "N/A")
+
+    # 2. 50 SMA > 200 SMA (MA alignment)
+    ma_align = (sma_50 > sma_200) if (sma_50 and sma_200) else False
+    add_check("50 SMA > 200 SMA", ma_align,
+              f"₹{sma_50:.0f} vs ₹{sma_200:.0f}" if (sma_50 and sma_200) else "N/A")
+
+    # 3. 200 SMA trending up (compare to 1 month ago, ~21 bars)
+    sma200_trending_up = False
+    sma200_val_1m = None
+    try:
+        closes = df_full['Close']
+        sma200_series = closes.rolling(200).mean()
+        if len(sma200_series.dropna()) > 21:
+            sma200_val_1m = sma200_series.iloc[-22]
+            if not pd.isna(sma200_val_1m):
+                sma200_trending_up = sma_200 > float(sma200_val_1m)
+    except Exception:
+        pass
+    add_check("200 SMA Trending Up", sma200_trending_up,
+              f"Now ₹{sma_200:.0f}" if sma_200 else "N/A")
+
+    # 4. Price within 25% of 52-week HIGH
+    near_high = False
+    if price and wk52_high:
+        near_high = price >= (wk52_high * 0.75)
+    add_check("Within 25% of 52W High", near_high,
+              f"{((price/wk52_high)-1)*100:.1f}%" if (price and wk52_high) else "N/A")
+
+    # 5. Price at least 30% above 52-week LOW
+    above_low = False
+    if price and wk52_low:
+        above_low = price >= (wk52_low * 1.30)
+    add_check("30%+ Above 52W Low", above_low,
+              f"+{((price/wk52_low)-1)*100:.1f}%" if (price and wk52_low) else "N/A")
+
+    # ── Fundamental Criteria ─────────────────────────────────────
+    # EPS Growth
+    eps_ok = (eps_growth_pct is not None and eps_growth_pct >= 20)
+    add_check("EPS Growth 20%+",
+              eps_ok,
+              f"+{eps_growth_pct:.1f}%" if eps_growth_pct is not None else "N/A",
+              group="Fundamental")
+
+    # Revenue/Sales Growth
+    rev_ok = (revenue_growth_pct is not None and revenue_growth_pct >= 20)
+    add_check("Revenue Growth 20%+",
+              rev_ok,
+              f"+{revenue_growth_pct:.1f}%" if revenue_growth_pct is not None else "N/A",
+              group="Fundamental")
+
+    # Margin Expanding
+    margin_ok = margin_expanding is True
+    add_check("Expanding Margins", margin_ok,
+              "Yes" if margin_expanding else ("No" if margin_expanding is False else "N/A"),
+              group="Fundamental")
+
+    # Positive Earnings Surprise
+    surprise_ok = earnings_surprise is True
+    add_check("Positive Earnings Surprise", surprise_ok,
+              "Yes" if earnings_surprise else ("No" if earnings_surprise is False else "N/A"),
+              group="Fundamental")
+
+    # ── Other Factors ─────────────────────────────────────────────
+    # RS Rating > 70
+    rs_ok = False
+    rs_score_val = None
+    if rs_data:
+        rs_1y = rs_data.get("nifty_1y") or 0
+        # Simple mapping: outperform Nifty by >10% → RS 80+, >5% → RS 70+
+        rs_score_val = 50 + rs_1y  # rough
+        rs_ok = rs_score_val > 70
+    add_check("Relative Strength > 70", rs_ok,
+              f"~{rs_score_val:.0f}" if rs_score_val is not None else "N/A",
+              group="Other")
+
+    # Count pass/fail
+    passed_count = sum(1 for c in checks if c["pass"])
+    total = len(checks)
+    score_pct = round(passed_count / total * 100) if total else 0
+
+    return {
+        "checks": checks,
+        "passed": passed_count,
+        "total": total,
+        "score_pct": score_pct,
+    }
 def analyze(symbol):
     """Main analysis function."""
     try:
+        # Normalization for Indian stocks and indices
+        orig_symbol = symbol
+        if symbol.upper() in ["NIFTY", "NIFTY 50", "NIFTY50"]:
+            symbol = "^NSEI"
+        elif symbol.upper() in ["BANKNIFTY", "NIFTY BANK"]:
+            symbol = "^NSEBANK"
+        elif not symbol.startswith("^") and not symbol.endswith(".NS"):
+            symbol = f"{symbol.upper()}.NS"
+            
         logger.info(f"Analyzing {symbol}...")
-        ticker = yf.Ticker(symbol)
         
-        # 1. Price Data
-        df_full = ticker.history(period="5y")
-        if df_full.empty:
+        # 1. Price Data - Fetch 5y once using get_historical_data
+        df_full = get_historical_data(symbol, period="5y")
+        if df_full is None or df_full.empty:
             return {"error": f"No data found for {symbol}", "symbol": symbol}
+        
+        # Create yfinance Ticker object for info, even if historical data came from nsefin
+        ticker = yf.Ticker(symbol)
             
         df = df_full.tail(252)
         
@@ -221,11 +409,24 @@ def analyze(symbol):
         except Exception:
             pivot_data = None
         
-        # Chart Data
-        chart_df = df.tail(100)
-        chart_dates = [d.strftime("%Y-%m-%d") for d in chart_df.index]
-        chart_closes = [round(float(c), 2) for c in chart_df['Close']]
+        # EMA values at current date
+        ema_20_val  = compute_ema(df['Close'], 20)
+        ema_50_val  = compute_ema(df['Close'], 50)
+        ema_200_val = compute_ema(df_full['Close'], 200)
+
+        # Chart Data – 90 days with OHLC + volume for candlestick + EMA lines
+        chart_df = df.tail(90)
+        chart_dates   = [d.strftime("%Y-%m-%d") for d in chart_df.index]
+        chart_opens   = [safe_round(v) for v in chart_df['Open']]
+        chart_highs   = [safe_round(v) for v in chart_df['High']]
+        chart_lows    = [safe_round(v) for v in chart_df['Low']]
+        chart_closes  = [safe_round(v) for v in chart_df['Close']]
         chart_volumes = [int(v) for v in chart_df['Volume']]
+
+        # EMA series (last 90 bars)
+        ema20_series  = compute_ema_series(df_full['Close'], 20,  90)
+        ema50_series  = compute_ema_series(df_full['Close'], 50,  90)
+        ema200_series = compute_ema_series(df_full['Close'], 200, 90)
         
         # 2. Options Data (NSE)
         nse_symbol = symbol
@@ -235,11 +436,12 @@ def analyze(symbol):
             is_nse_index = True
         elif symbol == "^NSEBANK":
             nse_symbol = "BANKNIFTY"
-            is_index = True
+            is_nse_index = True
         elif symbol.endswith(".NS"):
             nse_symbol = symbol.replace(".NS", "")
             
         options_data = get_nse_option_chain(nse_symbol, is_nse_index)
+        print(f"DEBUG: options_data result for {nse_symbol}: {options_data}")
         
         # 3. Multi-TF RSI (pass current daily DF to save a call)
         print(f"DEBUG: Calculating RSI for {symbol}")
@@ -263,27 +465,36 @@ def analyze(symbol):
         result = {
             "symbol": symbol,
             "name": info.get("longName") or info.get("shortName") or symbol,
-            "price": round(float(current_price), 2),
-            "change": round(float(change_1d), 2),
-            "change_pct": round(float(change_1d_pct), 2),
-            "sma_20": round(float(sma_20), 2) if not pd.isna(sma_20) else None,
-            "sma_50": round(float(sma_50), 2) if not pd.isna(sma_50) else None,
-            "sma_200": round(float(sma_200), 2) if not pd.isna(sma_200) else None,
-            "macd": round(float(macd), 2) if macd is not None and not pd.isna(macd) else None,
-            "macd_signal": round(float(macd_signal), 2) if macd_signal is not None and not pd.isna(macd_signal) else None,
-            "macd_histogram": round(float(macd_hist), 2) if macd_hist is not None and not pd.isna(macd_hist) else None,
+            "price": safe_round(current_price),
+            "change": safe_round(change_1d),
+            "change_pct": safe_round(change_1d_pct),
+            "sma_20": safe_round(sma_20),
+            "sma_50": safe_round(sma_50),
+            "sma_200": safe_round(sma_200),
+            "macd": safe_round(macd),
+            "macd_signal": safe_round(macd_signal),
+            "macd_histogram": safe_round(macd_hist),
             "volume_trend": vol_trend,
             "rsi": rsi_data,
+            "ema_20":  ema_20_val,
+            "ema_50":  ema_50_val,
+            "ema_200": ema_200_val,
             "chart": {
-                "dates": chart_dates,
-                "closes": chart_closes,
+                "dates":   chart_dates,
+                "opens":   chart_opens,
+                "highs":   chart_highs,
+                "lows":    chart_lows,
+                "closes":  chart_closes,
                 "volumes": chart_volumes,
+                "ema20":   ema20_series,
+                "ema50":   ema50_series,
+                "ema200":  ema200_series,
             },
             "performance": [
-                {"period": "1D", "pct": round(float(change_1d_pct), 2)},
-                {"period": "1W", "pct": round(float(change_1w_pct), 2)},
-                {"period": "1M", "pct": round(float(change_1m_pct), 2)},
-                {"period": "1Y", "pct": round(float(change_1y_pct), 2)},
+                {"period": "1D", "pct": safe_round(change_1d_pct)},
+                {"period": "1W", "pct": safe_round(change_1w_pct)},
+                {"period": "1M", "pct": safe_round(change_1m_pct)},
+                {"period": "1Y", "pct": safe_round(change_1y_pct)},
             ],
             "options_data": options_data,
             "pivot_points": pivot_data,
@@ -300,7 +511,13 @@ def analyze(symbol):
             "previous_close": safe_get(info, "previousClose", float(prev_price) if not df.empty else None),
         }
         
-        # Add Fundamentals for non-indices
+        # --- Fundamentals & Trend Template ---
+        result["trend_template"] = None
+        eps_grow_pct = None
+        rev_grow_pct = None
+        margin_expanding = None
+        earnings_surprise = None
+
         if not is_index:
             try:
                 financials = getattr(ticker, "financials", None)
@@ -340,7 +557,7 @@ def analyze(symbol):
                     "debt_to_equity": safe_get(info, "debtToEquity"),
                     "sector": safe_get(info, "sector"),
                     "industry": safe_get(info, "industry"),
-                    "summary": safe_get(info, "longBusinessSummary"),
+                    "summary": (safe_get(info, "longBusinessSummary") or "")[:300],
                     "financials_revenue": f_revenue,
                     "financials_gross_profit": f_gross_profit,
                     "financials_operating_income": f_operating_income,
@@ -352,9 +569,102 @@ def analyze(symbol):
                     "cf_operating": c_operating,
                     "cf_free_cash_flow": c_free
                 })
+
+                # Growth stats for Trend Template
+                eps_growth = safe_get(info, "earningsGrowth")
+                eps_grow_pct = float(eps_growth) * 100 if eps_growth else None
+                rev_growth = safe_get(info, "revenueGrowth")
+                rev_grow_pct = float(rev_growth) * 100 if rev_growth else None
+
+                if (financials is not None and not financials.empty
+                        and "Gross Profit" in financials.index
+                        and len(financials.columns) >= 2):
+                    gp_curr = financials.loc["Gross Profit"].iloc[0]
+                    rev_curr = financials.loc["Total Revenue"].iloc[0] if "Total Revenue" in financials.index else None
+                    gp_prev = financials.loc["Gross Profit"].iloc[1]
+                    rev_prev = financials.loc["Total Revenue"].iloc[1] if "Total Revenue" in financials.index else None
+                    if rev_curr and rev_prev and rev_curr != 0 and rev_prev != 0:
+                        margin_expanding = bool((gp_curr / rev_curr) > (gp_prev / rev_prev))
+
+                eq_growth = safe_get(info, "earningsQuarterlyGrowth")
+                if eq_growth is not None:
+                    earnings_surprise = bool(float(eq_growth) > 0)
+
             except Exception as fe:
                 logger.warning(f"Error fetching fundamentals for {symbol}: {fe}")
+
+        # Compute Trend Template (Always for technicals, fundamentals optional)
+        try:
+            result["trend_template"] = compute_trend_template(
+                price=current_price, sma_20=sma_20, sma_50=sma_50, sma_200=sma_200,
+                df_full=df_full, wk52_high=wk52_high, wk52_low=wk52_low,
+                rs_data=rs_data, eps_growth_pct=eps_grow_pct, 
+                revenue_growth_pct=rev_grow_pct, margin_expanding=margin_expanding,
+                earnings_surprise=earnings_surprise
+            )
+        except Exception as tte:
+            logger.warning(f"Trend Template computation failed for {symbol}: {tte}")
                 
+            # --- ADDED: Implied Move Analysis (Ref Code) ---
+        straddle_price = 0
+        implied_move = 0
+        selected_exp = None
+        
+        # Use data from our robust nse_options fetcher
+        if options_data and options_data.get("current"):
+            curr = options_data["current"]
+            selected_exp = curr.get("expiry")
+            straddle_price = curr.get("straddle") or 0
+            implied_move = curr.get("implied_move") or 0
+        
+        # Fallback to yfinance only if nse_options failed
+        if not straddle_price:
+            try:
+                expirations = getattr(ticker, "options", [])
+                if expirations:
+                    selected_exp = expirations[0]  # Use nearest expiry by default
+                    chain = ticker.option_chain(selected_exp)
+                    calls = chain.calls
+                    puts = chain.puts
+                    
+                    # Find ATM strike
+                    strikes = pd.concat([calls["strike"], puts["strike"]]).unique()
+                    if len(strikes) > 0:
+                        call_strike = min(strikes, key=lambda x: abs(x - current_price))
+                        
+                        # ATM Call & Put (using ask prices as requested)
+                        atm_call_rows = calls[calls["strike"] == call_strike]
+                        atm_put_rows = puts[puts["strike"] == call_strike]
+                        
+                        atm_call_ask = atm_call_rows.iloc[0]["ask"] if not atm_call_rows.empty else 0
+                        atm_put_ask = atm_put_rows.iloc[0]["ask"] if not atm_put_rows.empty else 0
+                        
+                        straddle_price = safe_round(float(atm_call_ask) + float(atm_put_ask))
+                        
+                        # Implied Move formula (Ref Code Adaptation)
+                        try:
+                            exp_date = datetime.strptime(selected_exp, "%Y-%m-%d").date()
+                            today = datetime.now().date()
+                            days_to_exp = (exp_date - today).days
+                            
+                            if days_to_exp > 0 and straddle_price and float(straddle_price) > 0:
+                                implied_move = ((1 + float(straddle_price) / current_price) ** (1 / days_to_exp) - 1) * 100
+                            else:
+                                implied_move = 0
+                        except Exception as e:
+                            logger.error(f"Error calculating implied move from yf: {e}")
+            except Exception as e:
+                logger.debug(f"yfinance options fallback failed (normal for NSE): {e}")
+                pass
+
+        result.update({
+            "implied_move_data": {
+                "expiry": selected_exp,
+                "straddle": straddle_price,
+                "implied_move": safe_round(implied_move, 4)
+            }
+        })
+        
         return result
 
     except Exception as e:
@@ -363,7 +673,7 @@ def analyze(symbol):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Analyze an Indian stock or index.")
-    parser.add_argument("--symbol", required=False, default="^NSEI", help="yfinance ticker symbol")
+    parser.add_argument("symbol", nargs="?", default="^NSEI", help="yfinance ticker symbol")
     args = parser.parse_args()
 
     result = analyze(args.symbol)

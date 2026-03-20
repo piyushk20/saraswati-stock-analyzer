@@ -16,21 +16,39 @@ INDICES = {
     "^CNXIT": "NIFTY IT"
 }
 
-# Define Nifty 50 Universe for Gainers/Losers
-NIFTY_50 = [
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS",
-    "SBIN.NS", "INFY.NS", "LICI.NS", "ITC.NS", "HINDUNILVR.NS",
-    "LT.NS", "BAJFINANCE.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS",
-    "ONGC.NS", "TATAMOTORS.NS", "NTPC.NS", "KOTAKBANK.NS", "TITAN.NS",
-    "ADANIENT.NS", "ASIANPAINT.NS", "BAJAJFINSV.NS", "HAL.NS", "ULTRACEMCO.NS",
-    "M&M.NS", "COALINDIA.NS", "POWERGRID.NS", "BAJAJ-AUTO.NS", "WIPRO.NS",
-    "LTIM.NS", "ADANIPORTS.NS", "NESTLEIND.NS", "GRASIM.NS", "TECHM.NS",
-    "HINDZINC.NS", "TATASTEEL.NS", "PIDILITIND.NS", "HDFCLIFE.NS", "IOC.NS",
-    "SBILIFE.NS", "BRITANNIA.NS", "DRREDDY.NS", "APOLLOHOSP.NS", "INDIGO.NS",
-    "CIPLA.NS", "EICHERMOT.NS", "TATACONSUM.NS", "DIVISLAB.NS", "BPCL.NS"
-]
+def get_universe_symbols(category="nifty50"):
+    """Duplicate logic or import from screener to get symbols by category."""
+    # Hardcoded Nifty 50 for speed
+    nifty50 = [
+        "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS",
+        "SBIN.NS", "INFY.NS", "LICI.NS", "ITC.NS", "HINDUNILVR.NS",
+        "LT.NS", "BAJFINANCE.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS",
+        "ONGC.NS", "TATAMOTORS.NS", "NTPC.NS", "KOTAKBANK.NS", "TITAN.NS",
+        "ADANIENT.NS", "ASIANPAINT.NS", "BAJAJFINSV.NS", "HAL.NS", "ULTRACEMCO.NS",
+        "M&M.NS", "COALINDIA.NS", "POWERGRID.NS", "BAJAJ-AUTO.NS", "WIPRO.NS",
+        "LTIM.NS", "ADANIPORTS.NS", "NESTLEIND.NS", "GRASIM.NS", "TECHM.NS",
+        "HINDZINC.NS", "TATASTEEL.NS", "PIDILITIND.NS", "HDFCLIFE.NS", "IOC.NS",
+        "SBILIFE.NS", "BRITANNIA.NS", "DRREDDY.NS", "APOLLOHOSP.NS", "INDIGO.NS",
+        "CIPLA.NS", "EICHERMOT.NS", "TATACONSUM.NS", "DIVISLAB.NS", "BPCL.NS"
+    ]
+    if category == "nifty50":
+        return nifty50
+        
+    try:
+        import os
+        csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ind_nifty500list.csv")
+        if os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
+            symbols = [f"{s}.NS" for s in df['Symbol'].tolist()]
+            if category == "nifty200": return symbols[:200]
+            elif category == "midcap100": return symbols[100:200]
+            elif category == "smallcap100": return symbols[250:350]
+            elif category == "nifty500": return symbols
+        return nifty50
+    except:
+        return nifty50
 
-def fetch_market_overview():
+def fetch_market_overview(category="nifty50"):
     try:
         results = {
             "indices": [],
@@ -38,7 +56,7 @@ def fetch_market_overview():
             "top_losers": []
         }
 
-        # 1. Fetch Indices Data
+        # 1. Fetch Indices Data (Always the same)
         if INDICES:
             tickers_indices = list(INDICES.keys())
             idx_data = yf.download(tickers_indices, period="5d", group_by="ticker", progress=False)
@@ -73,15 +91,20 @@ def fetch_market_overview():
                 except Exception as e:
                     logger.error(f"Error processing index {symbol}: {e}")
 
-        # 2. Fetch Nifty 50 Data for Gainers/Losers
-        stocks_data = yf.download(NIFTY_50, period="5d", group_by="ticker", progress=False)
+        # 2. Fetch Universe Data for Gainers/Losers
+        universe = get_universe_symbols(category)
+        stocks_data = yf.download(universe, period="5d", group_by="ticker", progress=False)
         
         performance = []
         
-        for symbol in NIFTY_50:
+        for symbol in universe:
             try:
-                df = stocks_data[symbol]
-                if df is None or df.empty:
+                if len(universe) == 1:
+                    df = stocks_data
+                else:
+                    df = stocks_data[symbol]
+                    
+                if df is None or df.empty or 'Close' not in df:
                     continue
                 df = df.dropna()
                 
@@ -97,7 +120,7 @@ def fetch_market_overview():
                         "price": round(current_close, 2)
                     })
             except Exception as e:
-                logger.error(f"Error processing stock {symbol}: {e}")
+                # Silently skip individual stock errors to not break the whole list
                 continue
                 
         # Sort to find top gainers and losers
@@ -108,7 +131,7 @@ def fetch_market_overview():
         
         # Take top 5 losers
         results["top_losers"] = performance[-5:]
-        results["top_losers"].sort(key=lambda x: x["change_pct"]) # Sort ascending (worst first)
+        results["top_losers"].sort(key=lambda x: x["change_pct"])
         
         return results
 
@@ -116,4 +139,8 @@ def fetch_market_overview():
         return {"error": f"Failed to fetch market overview: {str(e)}\n{traceback.format_exc()}"}
 
 if __name__ == "__main__":
-    print(json.dumps(fetch_market_overview(), indent=2))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--category", default="nifty50")
+    args = parser.parse_args()
+    print(json.dumps(fetch_market_overview(args.category), indent=2))

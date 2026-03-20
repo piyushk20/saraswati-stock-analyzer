@@ -4,16 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saraswati — Indian Market Intelligence</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8081 http://127.0.0.1:8081;">
   
   <!-- Premium Web Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=6">
   
-  <!-- Chart.js for data visualization -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js v3.9.1 (pinned for chartjs-chart-financial compatibility) + Candlestick plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/date-fns@2.27.0/dist/date-fns.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
 
@@ -62,6 +66,15 @@
       <div class="header-intro">
         <h1 class="glow-title">Market Pulse</h1>
         <p class="subtitle">Live insights, elite performance.</p>
+        
+        <div class="category-filter-wrap">
+          <div class="category-btn-group">
+            <button class="cat-btn active" onclick="changeMomentumCategory('nifty50')">Nifty 50</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('nifty200')">Nifty 200</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('midcap100')">Midcap 100</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('smallcap100')">Smallcap 100</button>
+          </div>
+        </div>
       </div>
 
       <!-- Major Indices Row -->
@@ -160,10 +173,17 @@
           </div>
         </div>
 
-        <!-- Main Price Chart -->
+        <!-- Main Price Chart (Candlestick + EMA) -->
         <div class="glass-panel chart-card">
+          <div class="ema-legend">
+            <span class="ema-badge" style="background:rgba(255,145,0,0.15);color:#ff9100;">EMA 20</span>
+            <span class="ema-badge" style="background:rgba(0,229,255,0.15);color:#00e5ff;">EMA 50</span>
+            <span class="ema-badge" style="background:rgba(255,0,60,0.15);color:#ff003c;">EMA 200</span>
+            <span class="ema-badge" style="background:rgba(0,230,118,0.1);color:#00e676;">▲ Bull</span>
+            <span class="ema-badge" style="background:rgba(255,0,60,0.1);color:#ff003c;">▼ Bear</span>
+          </div>
           <div class="chart-container">
-            <canvas id="mainChart"></canvas>
+            <canvas id="candlestickChart"></canvas>
           </div>
         </div>
       </div>
@@ -255,11 +275,19 @@
         </div>
       </div>
 
+      <!-- Trend Template Checklist -->
+      <div class="glass-panel bento-box trend-template-card">
+        <h2 class="section-title">📊 Trend Template Analysis</h2>
+        <div id="trendTemplateContainer">
+          <div class="pulse-loader" style="color:var(--text-muted);text-align:center;padding:2rem;">Loading criteria...</div>
+        </div>
+      </div>
+
     </main>
 
   </div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
