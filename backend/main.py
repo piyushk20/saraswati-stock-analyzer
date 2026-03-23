@@ -257,11 +257,13 @@ def get_market_overview(request: Request, category: str = "nifty50", api_key: st
         
         if data.get("error"):
             raise HTTPException(status_code=500, detail=data["error"])
-            
-        market_overview_cache[category] = {
-            "data": data,
-            "expires_at": datetime.now() + timedelta(minutes=5)
-        }
+        
+        # Only cache if we got valid indices data — don't cache transient empty results
+        if data.get("indices"):
+            market_overview_cache[category] = {
+                "data": data,
+                "expires_at": datetime.now() + timedelta(minutes=5)
+            }
         
         return data
 

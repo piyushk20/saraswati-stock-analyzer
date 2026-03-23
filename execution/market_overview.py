@@ -56,43 +56,42 @@ def fetch_market_overview(category="nifty50"):
             "top_losers": []
         }
 
-        # 1. Fetch Indices Data (Always the same)
-        if INDICES:
-            tickers_indices = list(INDICES.keys())
-            idx_data = yf.download(tickers_indices, period="5d", group_by="ticker", progress=False)
-            
-            for symbol, name in INDICES.items():
-                try:
-                    if len(tickers_indices) == 1:
-                        df = idx_data
-                    else:
-                        df = idx_data[symbol]
-                        
-                    if df is None or df.empty:
-                        continue
-                        
-                    df = df.dropna()
-                    if len(df) >= 2:
-                        current_close = float(df['Close'].iloc[-1])
-                        prev_close = float(df['Close'].iloc[-2])
-                        day_high = float(df['High'].iloc[-1])
-                        day_low = float(df['Low'].iloc[-1])
-                        
-                        pct_change = ((current_close - prev_close) / prev_close) * 100
-                        
-                        results["indices"].append({
-                            "symbol": symbol,
-                            "name": name,
-                            "price": round(current_close, 2),
-                            "change_pct": round(pct_change, 2),
-                            "high": round(day_high, 2),
-                            "low": round(day_low, 2)
-                        })
-                except Exception as e:
-                    logger.error(f"Error processing index {symbol}: {e}")
+        # 1. Fetch Indices Data (One by one for robustness)
+        for symbol, name in INDICES.items():
+            try:
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(period="5d")
+                
+                if df is None or df.empty:
+                    logger.warning(f"No data for index {symbol}")
+                    continue
+                    
+                df = df.dropna()
+                if len(df) >= 2:
+                    current_close = float(df['Close'].iloc[-1])
+                    prev_close = float(df['Close'].iloc[-2])
+                    day_high = float(df['High'].iloc[-1])
+                    day_low = float(df['Low'].iloc[-1])
+                    
+                    pct_change = ((current_close - prev_close) / prev_close) * 100
+                    
+                    results["indices"].append({
+                        "symbol": symbol.replace('^', ''), # Strip ^ for cleaner display if needed, but app.js handles it
+                        "symbol_raw": symbol,
+                        "name": name,
+                        "price": round(current_close, 2),
+                        "change_pct": round(pct_change, 2),
+                        "high": round(day_high, 2),
+                        "low": round(day_low, 2)
+                    })
+            except Exception as e:
+                logger.error(f"Error processing index {symbol}: {e}")
 
         # 2. Fetch Universe Data for Gainers/Losers
         universe = get_universe_symbols(category)
+        
+        # We still use download for stocks as it's faster for large lists
+        # but we handle errors better
         stocks_data = yf.download(universe, period="5d", group_by="ticker", progress=False)
         
         performance = []
@@ -102,6 +101,8 @@ def fetch_market_overview(category="nifty50"):
                 if len(universe) == 1:
                     df = stocks_data
                 else:
+                    if symbol not in stocks_data.columns.levels[0]:
+                        continue
                     df = stocks_data[symbol]
                     
                 if df is None or df.empty or 'Close' not in df:
@@ -120,7 +121,6 @@ def fetch_market_overview(category="nifty50"):
                         "price": round(current_close, 2)
                     })
             except Exception as e:
-                # Silently skip individual stock errors to not break the whole list
                 continue
                 
         # Sort to find top gainers and losers
@@ -136,7 +136,8 @@ def fetch_market_overview(category="nifty50"):
         return results
 
     except Exception as e:
-        return {"error": f"Failed to fetch market overview: {str(e)}\n{traceback.format_exc()}"}
+        logger.error(f"Fatal error in fetch_market_overview: {e}")
+        return {"error": f"Failed to fetch market overview: {str(e)}"}
 
 if __name__ == "__main__":
     import argparse

@@ -40,8 +40,11 @@ test_nse_v3.py
 test_nsepython.py
 test_yf_options.py
 test_multi_rsi.py
-verify_full_app.py
+verify_*.py
 tmp_debug_nse.py
+market_overview_check.json
+debug_output.json
+*.json
 
 # Temporary output files
 analyze_response.txt
@@ -75,6 +78,7 @@ test_tcs*.json
 dashboard_fixed.png
 stock_analysis_*.png
 test_err_state.png
+!screenshots/dashboard.png
 
 # Frontend config (has real API key — use config.example.js instead)
 frontend/config.js

@@ -8,6 +8,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green?logo=fastapi)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+![Dashboard Preview](screenshots/dashboard.png)
+
 </div>
 
 ---

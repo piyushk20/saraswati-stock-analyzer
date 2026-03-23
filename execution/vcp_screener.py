@@ -101,38 +101,44 @@ def get_nse_500_symbols():
             "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS"
         ]
 
-def process_stock(ticker_string):
-    try:
-        ticker = yf.Ticker(ticker_string)
-        # Fetching 2 years data is enough for 200 EMA + 52-week highs/lows
-        ticker_history = ticker.history(period='2y')
-        if ticker_history.empty:
-            return None
-            
-        data = filter_by_vcp_conditions(ticker_history)
-        if data['Has_fulfilled'].tail(1).iloc[0] == True:
-            current_price = data['Close'].tail(1).iloc[0]
-            return {
-                "symbol": ticker_string,
-                "price": round(float(current_price), 2)
-            }
-        return None
-    except Exception:
-        return None
-
 def scan_vcp():
     try:
         symbols = get_nse_500_symbols()
+        # Cap symbols to 200 for faster VCP scanning if necessary, 
+        # but the prompt says 500 is fine as bulk download is fast
         print(f"Scanning {len(symbols)} symbols for VCP conditions...")
         vcp_stocks = []
         
-        # Use ThreadPoolExecutor for I/O bound yfinance calls
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = {executor.submit(process_stock, symbol): symbol for symbol in symbols}
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                if result:
-                    vcp_stocks.append(result)
+        # Batch size memory check: downloading 500 stocks for 2y takes ~2MB.
+        stocks_data = yf.download(symbols, period="2y", group_by="ticker", progress=False)
+        
+        for symbol in symbols:
+            try:
+                if len(symbols) == 1:
+                    df = stocks_data
+                else:
+                    if symbol not in stocks_data.columns.levels[0] if hasattr(stocks_data.columns, 'levels') else stocks_data.columns:
+                        continue
+                    df = stocks_data[symbol]
+                    
+                if df is None or df.empty or 'Close' not in df or 'Volume' not in df:
+                    continue
+                    
+                df = df.dropna()
+                if len(df) < 260:
+                    continue
+                    
+                data = filter_by_vcp_conditions(df.copy())
+                # `.tail(1).iloc[0]` or just `.iloc[-1]`
+                if data['Has_fulfilled'].iloc[-1]:
+                    current_price = data['Close'].iloc[-1]
+                    vcp_stocks.append({
+                        "symbol": symbol,
+                        "price": round(float(current_price), 2)
+                    })
+            except Exception as e:
+                # Silently skip individual stock errors to not break the whole list
+                continue
         
         return {"vcp_stocks": vcp_stocks}
                 
