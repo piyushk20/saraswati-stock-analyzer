@@ -1,0 +1,15 @@
+[submodule "FastAPI-Stock-data-"]
+	path = FastAPI-Stock-data-
+	url = https://github.com/OMCHOKSI/FastStockAPI.git
+[submodule "Python-NSE-Option-Chain-Analyzer"]
+	path = Python-NSE-Option-Chain-Analyzer
+	url = https://github.com/piyushk20/Python-NSE-Option-Chain-Analyzer.git
+[submodule "StockData"]
+	path = StockData
+	url = https://github.com/piyushk20/StockData.git
+[submodule "antigravity-kit"]
+	path = antigravity-kit
+	url = https://github.com/piyushk20/antigravity-kit.git
+[submodule "stock-screener"]
+	path = stock-screener
+	url = https://github.com/piyushk20/stock-screener.git
