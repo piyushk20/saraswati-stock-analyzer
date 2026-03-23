@@ -27,7 +27,7 @@ window.changeMomentumCategory = function(cat) {
   
   // Reload data
   loadMarketOverview(cat);
-  loadScreenerCrossovers(cat);
+  loadScreenerData(cat);
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -74,8 +74,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (initialDashboard && (!stockSelector || !stockSelector.value)) {
         initialDashboard.style.display = "flex";
       }
-      hideOverlay("loadingOverlay");
-      
       hideOverlay("loadingOverlay");
       
       // Load last since it's heavier
@@ -185,19 +183,6 @@ async function loadStockDashboard(symbol) {
     currentSymbol = symbol;
     // Backend (uvicorn) is on port 8000; frontend HTTP server is on 8081
     const fetchUrl = `${window.API_BASE}/api/analyze/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
-    
-    // Fix: Search on Enter
-    if (stockSearch) {
-      stockSearch.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-          const firstVisible = Array.from(stockSelector.options).find(o => o.style.display !== "none" && o.value !== "");
-          if (firstVisible) {
-            stockSelector.value = firstVisible.value;
-            loadStockDashboard(firstVisible.value);
-          }
-        }
-      });
-    }
 
     console.log(`📡 Fetching from: ${fetchUrl}`);
 
@@ -320,7 +305,7 @@ async function loadScreenerData(category = 'nifty50') {
     }
   } catch (err) {
     if (tableBody) {
-      tableBody.innerHTML = `<tr><td colspan="4" style="color:red; text-align:center; padding:20px;">Error: ${err.message}</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="4" style="color:red; text-align:center; padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
     }
     console.error("Screener fetch error:", err);
   }
@@ -375,7 +360,7 @@ async function loadVcpScreenerData() {
 
   } catch (err) {
     if (vcpBody) {
-      vcpBody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center; padding:20px;">Error: ${err.message}</td></tr>`;
+      vcpBody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center; padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
     }
     console.error("VCP fetch error:", err);
   }
@@ -438,13 +423,13 @@ async function loadMarketOverview(category = 'nifty50') {
     console.error("Failed to load market overview", e);
     const errText = `Error: ${e.message || e}`;
     const indicesRow = document.getElementById("indicesRow");
-    if (indicesRow) indicesRow.innerHTML = `<div style="color: red; padding: 20px;">${errText}</div>`;
+    if (indicesRow) indicesRow.innerHTML = `<div style="color: red; padding: 20px;">${sanitize(errText)}</div>`;
     
     const gainersBody = document.getElementById("gainersTableBody");
-    if (gainersBody) gainersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${errText}</td></tr>`;
+    if (gainersBody) gainersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${sanitize(errText)}</td></tr>`;
     
     const losersBody = document.getElementById("losersTableBody");
-    if (losersBody) losersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${errText}</td></tr>`;
+    if (losersBody) losersBody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">${sanitize(errText)}</td></tr>`;
   }
 }
 

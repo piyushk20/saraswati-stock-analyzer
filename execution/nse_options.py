@@ -206,9 +206,11 @@ class NSEFetcher:
             logger.error(f"Error parsing option data metrics: {e}")
             return None
 
+# Module-level singleton — reuses session/cookies across calls
+_fetcher = NSEFetcher()
+
 def get_nse_option_chain(symbol, is_index=False):
-    fetcher = NSEFetcher()
-    return fetcher.fetch_option_chain(symbol, is_index)
+    return _fetcher.fetch_option_chain(symbol, is_index)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

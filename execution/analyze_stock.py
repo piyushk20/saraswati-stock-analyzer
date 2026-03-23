@@ -62,23 +62,23 @@ def get_historical_data(symbol, period="5y"):
 # Add the project root to sys.path to find our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 try:
     from execution.nse_options import get_nse_option_chain
-    print("DEBUG: Successfully imported get_nse_option_chain from execution.nse_options")
+    logger.debug("Successfully imported get_nse_option_chain from execution.nse_options")
 except ImportError as e1:
-    print(f"DEBUG: Failed first import in analyze_stock: {e1}")
+    logger.debug("Failed first import in analyze_stock: %s", e1)
     # Handle if run directly from execution folder
     try:
         from nse_options import get_nse_option_chain
-        print("DEBUG: Successfully imported get_nse_option_chain from nse_options")
+        logger.debug("Successfully imported get_nse_option_chain from nse_options")
     except ImportError as e2:
-        print(f"DEBUG: Failed second import in analyze_stock: {e2}")
+        logger.debug("Failed second import in analyze_stock: %s", e2)
         def get_nse_option_chain(symbol, is_index=False):
-            print("DEBUG: Using dummy get_nse_option_chain returning None")
+            logger.debug("Using dummy get_nse_option_chain returning None")
             return {"current": None, "next": None}
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 def safe_get(data, key, default=None):
     """Safely get value from dictionary or Series."""
@@ -91,7 +91,7 @@ def safe_get(data, key, default=None):
             
         if pd.isna(val): return default
         return val
-    except:
+    except Exception:
         return default
 
 def safe_round(val, digits=2):
@@ -100,7 +100,7 @@ def safe_round(val, digits=2):
         return None
     try:
         return round(float(val), digits)
-    except:
+    except Exception:
         return None
 
 def calculate_rsi(data, window=14):
@@ -441,12 +441,12 @@ def analyze(symbol):
             nse_symbol = symbol.replace(".NS", "")
             
         options_data = get_nse_option_chain(nse_symbol, is_nse_index)
-        print(f"DEBUG: options_data result for {nse_symbol}: {options_data}")
+        logger.debug("options_data result for %s: %s", nse_symbol, options_data)
         
         # 3. Multi-TF RSI (pass current daily DF to save a call)
-        print(f"DEBUG: Calculating RSI for {symbol}")
+        logger.debug("Calculating RSI for %s", symbol)
         rsi_data = get_multi_tf_rsi(symbol, df_full)
-        print(f"DEBUG: RSI Results for {symbol}: {rsi_data}")
+        logger.debug("RSI Results for %s: %s", symbol, rsi_data)
         
         # 4. Result Construction
         # Calculate max/min safely from history
