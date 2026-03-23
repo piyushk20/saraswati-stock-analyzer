@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![Dashboard Preview](screenshots/dashboard.png)
+ ![Stock Analysis](screenshots/stock_analysis.png)
 
 </div>
 
