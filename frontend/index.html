@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saraswati — Indian Market Intelligence</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8081 http://127.0.0.1:8081;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8001 http://127.0.0.1:8001 http://localhost:8002 http://127.0.0.1:8002 http://localhost:8081 http://127.0.0.1:8081 http://localhost:8082 http://127.0.0.1:8082;">
   
   <!-- Premium Web Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -147,7 +147,61 @@
           </div>
         </div>
       </div>
+
+      <!-- EP (Episodic Pivot) Scanner -->
+      <div class="market-tables-grid" style="margin-top:20px;">
+        <div id="epBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title ep-title">⚡ Screener: Episodic Pivot (EP)</h2>
+          <p class="ep-subtitle">Gap ≥8% &nbsp;·&nbsp; RVOL ≥2.5x &nbsp;·&nbsp; Stage 2 Uptrend &nbsp;·&nbsp; Near 52W High</p>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="epTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Price</th>
+                  <th>Gap %</th>
+                  <th>RVOL</th>
+                  <th>Score</th>
+                  <th>Stage 2</th>
+                  <th>52W Dist</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="epScreenerBody">
+                <tr><td colspan="8" style="text-align:center;">
+                  <div class="pulse-loader">Scanning NSE 500 for Episodic Pivots...</div>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
+      <!-- Multi-Timeframe RSI Screener -->
+      <div class="market-tables-grid" style="margin-top:20px;">
+        <div id="rsiScreenerBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title text-magenta" style="color: #ff00ff;">🎯 Screener: Multi-Timeframe RSI Setup</h2>
+          <p class="ep-subtitle">Monthly RSI > 60 &nbsp;·&nbsp; Weekly RSI > 60 &nbsp;·&nbsp; Daily RSI in Range (55 - 65)</p>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="rsiScreenerTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Price</th>
+                  <th>Monthly RSI (>60)</th>
+                  <th>Weekly RSI (>60)</th>
+                  <th>Daily RSI (55-65)</th>
+                </tr>
+              </thead>
+              <tbody id="rsiScreenerBody">
+                <tr><td colspan="5" style="text-align:center;">
+                  <div class="pulse-loader">Scanning NSE 500 for Multi-Timeframe RSI setups...</div>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     <!-- END INITIAL DASHBOARD -->
 
     <!-- INDIVIDUAL STOCK DETAIL DASHBOARD -->
@@ -175,13 +229,23 @@
 
         <!-- Main Price Chart (Candlestick + EMA) -->
         <div class="glass-panel chart-card">
-          <div class="ema-legend">
-            <span class="ema-badge" style="background:rgba(255,145,0,0.15);color:#ff9100;">EMA 20</span>
-            <span class="ema-badge" style="background:rgba(0,229,255,0.15);color:#00e5ff;">EMA 50</span>
-            <span class="ema-badge" style="background:rgba(255,0,60,0.15);color:#ff003c;">EMA 200</span>
-            <span class="ema-badge" style="background:rgba(0,230,118,0.1);color:#00e676;">▲ Bull</span>
-            <span class="ema-badge" style="background:rgba(255,0,60,0.1);color:#ff003c;">▼ Bear</span>
+          <div class="chart-controls">
+            <div class="period-selector">
+              <button class="period-btn" data-period="1w">1W</button>
+              <button class="period-btn" data-period="1m">1M</button>
+              <button class="period-btn active" data-period="3m">3M</button>
+              <button class="period-btn" data-period="6m">6M</button>
+              <button class="period-btn" data-period="1y">1Y</button>
+            </div>
+            <div class="ema-legend">
+              <span class="ema-badge" style="background:rgba(255,145,0,0.15);color:#ff9100;">EMA 20</span>
+              <span class="ema-badge" style="background:rgba(0,229,255,0.15);color:#00e5ff;">EMA 50</span>
+              <span class="ema-badge" style="background:rgba(255,0,60,0.15);color:#ff003c;">EMA 200</span>
+              <span class="ema-badge" style="background:rgba(0,230,118,0.1);color:#00e676;">▲ Bull</span>
+              <span class="ema-badge" style="background:rgba(255,0,60,0.1);color:#ff003c;">▼ Bear</span>
+            </div>
           </div>
+
           <div class="chart-container">
             <canvas id="candlestickChart"></canvas>
           </div>
@@ -216,6 +280,17 @@
             <div id="rsiMonthlyCard" class="indicator-card"></div>
           </div>
         </div>
+
+        <!-- Volatility & Trend Strength -->
+        <div class="glass-panel bento-box" id="volatilityBox">
+          <h2 class="section-title">Volatility & Trend Strength (TA)</h2>
+          <div class="signals-grid">
+            <div id="adxCard" class="indicator-card"></div>
+            <div id="bbCard" class="indicator-card"></div>
+          </div>
+          <div id="volatilityDataGrid" class="data-grid"></div>
+        </div>
+
 
         <!-- Support & Resistance (Pivot Points) -->
         <div class="glass-panel bento-box" id="pivotBox">
@@ -257,6 +332,28 @@
           </div>
         </div>
 
+        <!-- Technical Indicator Explorer -->
+        <div class="glass-panel bento-box" id="taExplorerBox">
+          <h2 class="section-title">Technical Indicator Explorer</h2>
+          <div class="explorer-controls" style="margin-bottom: 15px;">
+            <select id="taIndicatorSelect" class="glass-select explorer-select" style="width: 100%;">
+              <option value="bollinger">Bollinger Bands</option>
+              <option value="keltner">Keltner Channels</option>
+              <option value="ichimoku">Ichimoku Cloud</option>
+              <option value="adx">ADX (Trend Strength)</option>
+              <option value="atr">ATR (Volatility)</option>
+              <option value="vwap">VWAP (Volume)</option>
+              <option value="mfi">MFI (Money Flow)</option>
+              <option value="cci">CCI (Commodity Channel)</option>
+              <option value="williams_r">Williams %R</option>
+              <option value="stochastic">Stochastic Oscillator</option>
+            </select>
+          </div>
+          <div id="taIndicatorDetails" class="ta-details-container">
+            <!-- Details will be injected here -->
+          </div>
+        </div>
+
         <!-- Fundamentals -->
         <div class="glass-panel bento-box" id="fundamentalsBox">
           <h2 class="section-title">Fundamentals & Valuations</h2>
@@ -288,6 +385,7 @@
   </div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
+

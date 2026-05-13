@@ -2,10 +2,10 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("screener")
 
-# Define our universe of stocks and indices to scan
 # Define universes
 MAJOR_INDEXES = ["^NSEI", "^NSEBANK", "^CNXIT", "^CNXAUTO", "^CNXPHARMA"]
 NIFTY_50 = [
@@ -24,12 +24,10 @@ NIFTY_50 = [
 def get_universe_symbols(category="nifty50"):
     """Returns a list of symbols for the given category."""
     try:
-        # For Nifty 50, use the hardcoded list for speed/reliability
         if category == "nifty50":
             return NIFTY_50
             
         import os
-        import pandas as pd
         csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ind_nifty500list.csv")
         
         if not os.path.exists(csv_path):
@@ -41,10 +39,8 @@ def get_universe_symbols(category="nifty50"):
         if category == "nifty200":
             return symbols[:200]
         elif category == "midcap100":
-            # Roughly ranks 101-200 in the 500 list are midcaps
             return symbols[100:200]
         elif category == "smallcap100":
-            # Roughly ranks 251-350 in the 500 list are smallcaps
             return symbols[250:350]
         elif category == "nifty500":
             return symbols
@@ -54,91 +50,69 @@ def get_universe_symbols(category="nifty50"):
         logger.error(f"Error loading universe {category}: {e}")
         return NIFTY_50
 
+def _analyze_crossover(symbol: str, seven_days_ago) -> list:
+    """Analyze a single symbol for crossovers in the last 7 days."""
+    try:
+        t = yf.Ticker(symbol)
+        df = t.history(period="6mo", interval="1d", auto_adjust=True, timeout=10)
+        
+        if df is None or len(df) < 50:
+            return []
+            
+        df = df.dropna(subset=["Close"])
+        df['SMA_20'] = df['Close'].rolling(window=20).mean()
+        df['SMA_50'] = df['Close'].rolling(window=50).mean()
+        
+        df['prev_SMA_20'] = df['SMA_20'].shift(1)
+        df['prev_SMA_50'] = df['SMA_50'].shift(1)
+        
+        # Golden Cross
+        golden = (df['prev_SMA_20'] <= df['prev_SMA_50']) & (df['SMA_20'] > df['SMA_50'])
+        # Death Cross
+        death = (df['prev_SMA_20'] >= df['prev_SMA_50']) & (df['SMA_20'] < df['SMA_50'])
+        
+        found = []
+        for date, row in df[golden].iterrows():
+            if pd.to_datetime(date.date()) >= seven_days_ago:
+                found.append({
+                    "symbol": symbol,
+                    "type": "Golden Cross",
+                    "date": date.strftime("%Y-%m-%d"),
+                    "price": round(float(row['Close']), 2)
+                })
+                
+        for date, row in df[death].iterrows():
+            if pd.to_datetime(date.date()) >= seven_days_ago:
+                found.append({
+                    "symbol": symbol,
+                    "type": "Death Cross",
+                    "date": date.strftime("%Y-%m-%d"),
+                    "price": round(float(row['Close']), 2)
+                })
+        return found
+    except:
+        return []
+
 def find_crossovers(category="nifty50"):
-    """
-    Downloads 6 months of daily data for the specified universe.
-    Calculates 20/50 SMA and finds symbols that had a Golden or Death cross 
-    within the last 7 calendar days.
-    """
+    """Orchestrate SMA crossover scan using thread pool."""
     base_symbols = get_universe_symbols(category)
-    # Always include major indices for context in the screener
     symbols = list(set(MAJOR_INDEXES + base_symbols))
+    
+    seven_days_ago = pd.to_datetime((datetime.now() - timedelta(days=7)).date())
     crossovers = []
     
-    # 7 days ago at midnight
-    seven_days_ago = pd.to_datetime((datetime.now() - timedelta(days=7)).date())
+    logger.info(f"Scanning {len(symbols)} symbols for crossovers...")
     
-    try:
-        # Download data for all symbols efficiently
-        data = yf.download(symbols, period="6mo", progress=False, threads=True)
-        
-        # Check if we got data
-        if 'Close' in data:
-            close_prices = data['Close']
-        else:
-            return {"error": "Failed to extract Close prices from Yahoo Finance."}
-            
-        for symbol in symbols:
-            try:
-                # Handle single column vs multi-column
-                if isinstance(close_prices, pd.Series):
-                    if symbol != symbols[0]:
-                        continue
-                    df = close_prices.dropna().to_frame(name='Close')
-                else:
-                    if symbol not in close_prices.columns:
-                        continue
-                    df = close_prices[[symbol]].dropna().copy()
-                    df.columns = ['Close']
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_analyze_crossover, s, seven_days_ago): s for s in symbols}
+        for fut in as_completed(futures):
+            res = fut.result()
+            if res:
+                crossovers.extend(res)
                 
-                # Minimum 50 days needed for SMA_50
-                if len(df) < 50:
-                    continue
-                    
-                # Calculate SMAs
-                df['SMA_20'] = df['Close'].rolling(window=20).mean()
-                df['SMA_50'] = df['Close'].rolling(window=50).mean()
-                
-                # Check for crossovers
-                df['prev_SMA_20'] = df['SMA_20'].shift(1)
-                df['prev_SMA_50'] = df['SMA_50'].shift(1)
-                
-                # Golden Cross: prev 20 <= prev 50 AND curr 20 > curr 50
-                golden = (df['prev_SMA_20'] <= df['prev_SMA_50']) & (df['SMA_20'] > df['SMA_50'])
-                
-                # Death Cross: prev 20 >= prev 50 AND curr 20 < curr 50
-                death = (df['prev_SMA_20'] >= df['prev_SMA_50']) & (df['SMA_20'] < df['SMA_50'])
-                
-                # Iterate through matched dates
-                for date, row in df[golden].iterrows():
-                    if date >= seven_days_ago:
-                        crossovers.append({
-                            "symbol": symbol,
-                            "type": "Golden Cross",
-                            "date": date.strftime("%Y-%m-%d"),
-                            "price": round(row['Close'], 2)
-                        })
-                        
-                for date, row in df[death].iterrows():
-                    if date >= seven_days_ago:
-                        crossovers.append({
-                            "symbol": symbol,
-                            "type": "Death Cross",
-                            "date": date.strftime("%Y-%m-%d"),
-                            "price": round(row['Close'], 2)
-                        })
-                        
-            except Exception as inner_e:
-                logger.warning(f"Failed to process SMA crossover for {symbol}: {inner_e}")
-                
-    except Exception as e:
-        logger.error(f"Error fetching crossover data: {e}", exc_info=True)
-        return {"error": str(e)}
-        
-    # Sort by date descending (newest first)
     crossovers.sort(key=lambda x: x['date'], reverse=True)
     return {"crossovers": crossovers}
 
 if __name__ == "__main__":
-    result = find_crossovers()
-    print(result)
+    import json
+    print(json.dumps(find_crossovers(), indent=2))

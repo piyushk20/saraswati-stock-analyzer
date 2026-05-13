@@ -6,3 +6,4 @@ numpy==1.26.4
 smartapi-python==1.4.1
 python-dotenv==1.0.1
 pyotp==2.9.0
+ta

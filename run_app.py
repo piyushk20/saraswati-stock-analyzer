@@ -26,7 +26,7 @@ def kill_process_on_port(port):
         subprocess.run(f"fuser -k {port}/tcp", shell=True)
 
 def start_backend():
-    backend_port = 8000
+    backend_port = 8001
     print(f"Starting backend on port {backend_port}...")
     backend_dir = os.path.join(os.getcwd(), "backend")
     # Using python -m uvicorn ensure we use the right environment
@@ -36,22 +36,23 @@ def start_backend():
     )
 
 def start_frontend():
-    print("Starting frontend on port 8080...")
+    frontend_port = 8081
+    print(f"Starting frontend on port {frontend_port}...")
     frontend_dir = os.path.join(os.getcwd(), "frontend")
     return subprocess.Popen(
-        [sys.executable, "-m", "http.server", "8080"],
+        [sys.executable, "-m", "http.server", str(frontend_port)],
         cwd=frontend_dir
     )
 
 if __name__ == "__main__":
     kill_process_on_port(8000)
-    kill_process_on_port(8080)
+    kill_process_on_port(8081)
     
     be_proc = start_backend()
     fe_proc = start_frontend()
     
     print("\n--- Servers started ---")
-    print("Frontend: http://localhost:8080")
+    print("Frontend: http://localhost:8081")
     print("Backend:  http://localhost:8000")
     print("Press Ctrl+C to stop.\n")
     

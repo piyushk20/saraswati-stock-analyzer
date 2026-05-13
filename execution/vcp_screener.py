@@ -1,154 +1,143 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import linregress
 import yfinance as yf
-import concurrent.futures
-from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-import traceback
+import logging
+from datetime import datetime, timedelta
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("vcp_screener")
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+VCP_CONFIG = {
+    "MAX_WORKERS": 25,
+    "DATA_PERIOD": "2y",
+    "SYMBOL_CAP":  500,
+}
 
 def cal_slope(arr):
+    """Manual simple linear regression: slope = cov(x,y) / var(x)"""
     y = np.array(arr)
     x = np.arange(len(y))
-    slope, intercept, rvalue, pvalue, stderr = linregress(x, y)
-    return slope
+    n = len(y)
+    if n < 2: return 0.0
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+    numerator = np.sum((x - x_mean) * (y - y_mean))
+    denominator = np.sum((x - x_mean) ** 2)
+    if denominator == 0: return 0.0
+    return numerator / denominator
 
 def filter_by_vcp_conditions(df):
-    if len(df) < 260: # need at least a year of data
+    """Apply Mark Minervini's Trend Template & VCP logic."""
+    if len(df) < 200:
         df['Has_fulfilled'] = False
         return df[['Close', 'Has_fulfilled']]
         
-    moving_averages = [10, 20, 30, 50, 150, 200]
-    for ma in moving_averages:
-        df['SMA_' + str(ma)] = round(df['Close'].rolling(window=ma).mean(), 2)
-        
-    df['Avg_vol_50'] = round(df['Volume'].rolling(window=50).mean(), 2)
-    df['SMA_slope_30'] = df['SMA_30'].rolling(window=20).apply(cal_slope, raw=True)
+    # SMAs
+    df['SMA_50']  = df['Close'].rolling(window=50).mean()
+    df['SMA_150'] = df['Close'].rolling(window=150).mean()
+    df['SMA_200'] = df['Close'].rolling(window=200).mean()
+    
+    # Slopes for trend validation
     df['SMA_slope_200'] = df['SMA_200'].rolling(window=20).apply(cal_slope, raw=True)
-    df['52_week_low'] = df['Close'].rolling(window=5*52).min()
-    df['52_week_high'] = df['Close'].rolling(window=5*52).max()
+    
+    # 52-Week High/Low
+    df['52_week_low']  = df['Close'].rolling(window=252).min()
+    df['52_week_high'] = df['Close'].rolling(window=252).max()
 
     # Condition 1: Price > 150 MA & 200 MA
-    df['Condition1'] = (df['Close'] > df['SMA_150']) & (df['Close'] > df['SMA_200']) 
+    c1 = (df['Close'] > df['SMA_150']) & (df['Close'] > df['SMA_200']) 
     # Condition 2: 150 MA > 200 MA
-    df['Condition2'] = (df['SMA_150'] > df['SMA_200']) 
+    c2 = (df['SMA_150'] > df['SMA_200']) 
     # Condition 3: 200 MA trending up for at least 1 month
-    df['Condition3'] = df['SMA_slope_200'] > 0.0
+    c3 = df['SMA_slope_200'] > 0.0
     # Condition 4: 50 MA > 150 MA & 200 MA
-    df['Condition4'] = (df['SMA_50'] > df['SMA_150']) & (df['SMA_150'] > df['SMA_200']) 
+    c4 = (df['SMA_50'] > df['SMA_150']) & (df['SMA_150'] > df['SMA_200']) 
     # Condition 5: Price > 50MA
-    df['Condition5'] = (df['Close'] > df['SMA_50'])
+    c5 = (df['Close'] > df['SMA_50'])
     # Condition 6: Price > 52-week low + 25%
-    df['Condition6'] = (df['Close'] > df['52_week_low']* 1.25) 
-    # Condition 7: Price > 52-week high - 25%
-    df['Condition7'] = (df['Close'] > df['52_week_high']* 0.75) 
-    # Condition 8: Pivot (5 day) Breakout
-    winsize = 5
-    df['Condition8'] = df['Close'] > ((df['Close']).rolling(window=winsize).mean() + (df['Close']).rolling(window=winsize).max() + (df['Close']).rolling(window=winsize).min())/3 
+    c6 = (df['Close'] > df['52_week_low'] * 1.25) 
+    # Condition 7: Price within 25% of 52-week high
+    c7 = (df['Close'] > df['52_week_high'] * 0.75) 
     
-    # Condition 9: Contraction below 10%
-    cond9_cols = []
-    for handlesize in range(5, 41):
-        col_name = f'Condition9.{handlesize}'
-        df[col_name] = ((df['Close']).rolling(window=handlesize).max() - (df['Close']).rolling(window=handlesize).min()) / (df['Close']).rolling(window=handlesize).min() < 0.1
-        cond9_cols.append(col_name)
+    # Condition 8: Consolidation / Tightness (VCP Handle)
+    # Check if max contraction in last 10-40 days is < 10%
+    contraction = (df['Close'].rolling(window=20).max() - df['Close'].rolling(window=20).min()) / df['Close'].rolling(window=20).min()
+    c8 = contraction < 0.12 # Slightly relaxed for broader discovery
     
-    df['Condition9'] = df[cond9_cols].any(axis='columns')
-    
-    df['Has_fulfilled'] = df[['Condition1','Condition2','Condition3','Condition4','Condition5','Condition6','Condition7','Condition8','Condition9']].all(axis='columns')
+    df['Has_fulfilled'] = c1 & c2 & c3 & c4 & c5 & c6 & c7 & c8
 
-    return df[['Close','Has_fulfilled']]
+    return df[['Close', 'Has_fulfilled']]
 
 def get_nse_500_symbols():
+    """Fetch Nifty 500 symbols from NSE or local fallback."""
     url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         import requests
         from io import StringIO
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             df = pd.read_csv(StringIO(res.text))
-            if 'Symbol' in df.columns:
-                symbols = df['Symbol'].tolist()
-                # Clean symbols and add .NS suffix
-                clean_symbols = [f"{str(s).strip()}.NS" for s in symbols if s]
-                return clean_symbols
+            return [f"{s.strip()}.NS" for s in df['Symbol'].tolist() if s]
+    except:
+        pass
+    
+    # Fallback to local
+    try:
+        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_nifty500list.csv")
+        if os.path.exists(local_path):
+            df = pd.read_csv(local_path)
+            return [f"{s.strip()}.NS" for s in df['Symbol'].tolist() if s]
+    except:
+        pass
         
-        # Fallback to local file if request fails
-        import os
-        from pathlib import Path
-        local_csv_path = Path(os.path.dirname(os.path.abspath(__file__))) / ".." / "ind_nifty500list.csv"
+    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS"]
+
+def _fetch_and_analyze(symbol: str) -> dict | None:
+    """Analyze a single symbol for VCP."""
+    try:
+        t = yf.Ticker(symbol)
+        df = t.history(period=VCP_CONFIG["DATA_PERIOD"], interval="1d", auto_adjust=True, timeout=10)
         
-        if local_csv_path.exists():
-            df = pd.read_csv(local_csv_path)
-            if 'Symbol' in df.columns:
-                symbols = df['Symbol'].tolist()
-                return [f"{str(s).strip()}.NS" for s in symbols if s]
-                
-        # Ultimate fallback
-        return [
-            "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", 
-            "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS"
-        ]
-    except Exception as e:
-        print("Could not fetch NSE 500 from official source or local file:", e)
-        # Ultimate fallback
-        return [
-            "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", 
-            "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "BAJFINANCE.NS"
-        ]
+        if df is None or len(df) < 200:
+            return None
+            
+        df = df.dropna(subset=["Close"])
+        res_df = filter_by_vcp_conditions(df.copy())
+        
+        if res_df['Has_fulfilled'].iloc[-1]:
+            return {
+                "symbol": symbol.replace(".NS", ""),
+                "price": round(float(res_df['Close'].iloc[-1]), 2)
+            }
+    except:
+        pass
+    return None
 
 def scan_vcp():
-    try:
-        symbols = get_nse_500_symbols()
-        # Cap symbols to 200 for faster VCP scanning if necessary, 
-        # but the prompt says 500 is fine as bulk download is fast
-        print(f"Scanning {len(symbols)} symbols for VCP conditions...")
-        vcp_stocks = []
-        
-        # Batch size memory check: downloading 500 stocks for 2y takes ~2MB.
-        stocks_data = yf.download(symbols, period="2y", group_by="ticker", progress=False)
-        
-        for symbol in symbols:
-            try:
-                if len(symbols) == 1:
-                    df = stocks_data
-                else:
-                    if symbol not in stocks_data.columns.levels[0] if hasattr(stocks_data.columns, 'levels') else stocks_data.columns:
-                        continue
-                    df = stocks_data[symbol]
-                    
-                if df is None or df.empty or 'Close' not in df or 'Volume' not in df:
-                    continue
-                    
-                df = df.dropna()
-                if len(df) < 260:
-                    continue
-                    
-                data = filter_by_vcp_conditions(df.copy())
-                # `.tail(1).iloc[0]` or just `.iloc[-1]`
-                if data['Has_fulfilled'].iloc[-1]:
-                    current_price = data['Close'].iloc[-1]
-                    vcp_stocks.append({
-                        "symbol": symbol,
-                        "price": round(float(current_price), 2)
-                    })
-            except Exception as e:
-                # Silently skip individual stock errors to not break the whole list
-                continue
-        
-        return {"vcp_stocks": vcp_stocks}
+    """Main VCP scanning orchestrator."""
+    symbols = get_nse_500_symbols()[:VCP_CONFIG["SYMBOL_CAP"]]
+    logger.info(f"Scanning {len(symbols)} symbols for VCP conditions...")
+    
+    vcp_stocks = []
+    with ThreadPoolExecutor(max_workers=VCP_CONFIG["MAX_WORKERS"]) as pool:
+        futures = {pool.submit(_fetch_and_analyze, s): s for s in symbols}
+        for fut in as_completed(futures):
+            res = fut.result()
+            if res:
+                vcp_stocks.append(res)
                 
-    except Exception as e:
-        return {"error": f"Failed to run VCP scan: {str(e)}\n{traceback.format_exc()}"}
+    vcp_stocks.sort(key=lambda x: x['symbol'])
+    logger.info(f"VCP scan complete. Found {len(vcp_stocks)} stocks.")
+    return {"vcp_stocks": vcp_stocks}
 
 def run_vcp_screener():
-    """Entry point for the backend to run the VCP scan."""
     return scan_vcp()
 
 if __name__ == "__main__":
-    results = run_vcp_screener()
-    print(json.dumps(results, indent=2))
+    print(json.dumps(scan_vcp(), indent=2))

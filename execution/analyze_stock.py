@@ -8,54 +8,24 @@ import logging
 import argparse
 import time
 from datetime import datetime, timedelta
+import ta
+from ta.momentum import RSIIndicator, StochasticOscillator, WilliamsRIndicator
+from ta.trend import MACD, ADXIndicator, CCIIndicator, IchimokuIndicator
+from ta.volatility import BollingerBands, AverageTrueRange, KeltnerChannel
+from ta.volume import VolumeWeightedAveragePrice, MFIIndicator
 
-# nsefin for historical data as requested
-try:
-    from nsefin import NSEClient
-    nse_client = NSEClient()
-except ImportError:
-    nse_client = None
 
 def get_historical_data(symbol, period="5y"):
     """
-    Fetch historical data using nsefin with yfinance fallback.
-    nsefin is used for candlestick charts as requested.
+    Fetch historical data using yfinance.
     """
-    df = None
-    
-    # Try nsefin first for candlestick data
-    if nse_client and not symbol.startswith('^'):
-        try:
-            # clean symbol for nsefin (remove .NS)
-            nse_symbol = symbol.replace('.NS', '')
-            logger.info(f"📡 Attempting nsefin fetch for {nse_symbol}...")
-            
-            # Map period to day_count (roughly)
-            day_map = {'1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
-            days = day_map.get(period, 1825)
-            
-            # Use history method discovered via inspect: (self, symbol: 'str', day_count: 'int' = 365)
-            df = nse_client.history(symbol=nse_symbol, day_count=days)
-            
-            if df is not None and not df.empty:
-                logger.info(f"✅ nsefin fetch successful for {nse_symbol}")
-                # nsefin returns Date, Open, High, Low, Close, Volume
-                # Ensure index is datetime
-                if 'Date' in df.columns:
-                    df['Date'] = pd.to_datetime(df['Date'])
-                    df.set_index('Date', inplace=True)
-                return df
-        except Exception as e:
-            logger.warning(f"⚠️ nsefin failed for {symbol}: {e}. Falling back to yfinance.")
-
-    # Fallback to yfinance
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(period=period)
         if df is not None and not df.empty:
             return df
     except Exception as e:
-        logger.error(f"❌ yfinance fallback failed for {symbol}: {e}")
+        logger.error(f"❌ yfinance fetch failed for {symbol}: {e}")
         
     return None
 
@@ -104,35 +74,81 @@ def safe_round(val, digits=2):
         return None
 
 def calculate_rsi(data, window=14):
-    """Calculates Relative Strength Index (RSI)."""
-    if len(data) < window + 1: return pd.Series([None] * len(data))
-    delta = data.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    
-    # To handle division by zero where loss is 0
-    # Standard RSI: gain/loss. If loss is 0, RSI is 100.
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    
-    # Handle cases where loss is 0 (set to 100) or both are 0 (set to 50)
-    rsi = rsi.where(loss != 0, 100)
-    rsi = rsi.where((gain != 0) | (loss != 0), 50)
-    
-    # Final cleanup for JSON serialization (no inf/nan)
-    rsi = rsi.replace([np.inf, -np.inf], 100).fillna(50)
-    
-    return rsi
+    """Calculates Relative Strength Index (RSI) using ta library."""
+    if len(data) < window + 1: return pd.Series([50.0] * len(data))
+    rsi = RSIIndicator(close=data, window=window).rsi()
+    return rsi.fillna(50.0)
 
 def calculate_macd(data, fast=12, slow=26, signal=9):
-    """Calculates MACD."""
+    """Calculates MACD using ta library."""
     if len(data) < slow: return None, None, None
-    exp1 = data.ewm(span=fast, adjust=False).mean()
-    exp2 = data.ewm(span=slow, adjust=False).mean()
-    macd = exp1 - exp2
-    signal_line = macd.ewm(span=signal, adjust=False).mean()
-    hist = macd - signal_line
-    return macd.iloc[-1], signal_line.iloc[-1], hist.iloc[-1]
+    indicator = MACD(close=data, window_fast=fast, window_slow=slow, window_sign=signal)
+    macd = indicator.macd()
+    macd_signal = indicator.macd_signal()
+    macd_diff = indicator.macd_diff()
+    return macd.iloc[-1], macd_signal.iloc[-1], macd_diff.iloc[-1]
+
+def calculate_all_technical_indicators(df):
+    """Calculates comprehensive technical indicators using ta library."""
+    if len(df) < 30: return {}
+    
+    results = {}
+    
+    # 1. Volatility
+    bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
+    results["bollinger"] = {
+        "high": safe_round(bb.bollinger_hband().iloc[-1]),
+        "mid": safe_round(bb.bollinger_mavg().iloc[-1]),
+        "low": safe_round(bb.bollinger_lband().iloc[-1])
+    }
+    
+    atr = AverageTrueRange(high=df['High'], low=df['Low'], close=df['Close'], window=14)
+    results["atr"] = safe_round(atr.average_true_range().iloc[-1])
+    
+    kc = KeltnerChannel(high=df['High'], low=df['Low'], close=df['Close'], window=20)
+    results["keltner"] = {
+        "high": safe_round(kc.keltner_channel_hband().iloc[-1]),
+        "mid": safe_round(kc.keltner_channel_mband().iloc[-1]),
+        "low": safe_round(kc.keltner_channel_lband().iloc[-1])
+    }
+    
+    # 2. Trend & Momentum
+    adx_ind = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'], window=14)
+    results["adx"] = {
+        "adx": safe_round(adx_ind.adx().iloc[-1]),
+        "pos": safe_round(adx_ind.adx_pos().iloc[-1]),
+        "neg": safe_round(adx_ind.adx_neg().iloc[-1])
+    }
+    
+    cci = CCIIndicator(high=df['High'], low=df['Low'], close=df['Close'], window=20)
+    results["cci"] = safe_round(cci.cci().iloc[-1])
+    
+    williams = WilliamsRIndicator(high=df['High'], low=df['Low'], close=df['Close'], lbp=14)
+    results["williams_r"] = safe_round(williams.williams_r().iloc[-1])
+    
+    ichimoku = IchimokuIndicator(high=df['High'], low=df['Low'])
+    results["ichimoku"] = {
+        "span_a": safe_round(ichimoku.ichimoku_a().iloc[-1]),
+        "span_b": safe_round(ichimoku.ichimoku_b().iloc[-1]),
+        "base": safe_round(ichimoku.ichimoku_base_line().iloc[-1]),
+        "conversion": safe_round(ichimoku.ichimoku_conversion_line().iloc[-1])
+    }
+    
+    # 3. Volume
+    vwap = VolumeWeightedAveragePrice(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+    results["vwap"] = safe_round(vwap.volume_weighted_average_price().iloc[-1])
+    
+    mfi = MFIIndicator(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'], window=14)
+    results["mfi"] = safe_round(mfi.money_flow_index().iloc[-1])
+    
+    stoch = StochasticOscillator(high=df['High'], low=df['Low'], close=df['Close'], window=14, smooth_window=3)
+    results["stochastic"] = {
+        "k": safe_round(stoch.stoch().iloc[-1]),
+        "d": safe_round(stoch.stoch_signal().iloc[-1])
+    }
+
+    return results
+
 
 def calculate_pivot_points(high, low, close):
     """Calculates Daily Pivot Points."""
@@ -153,11 +169,27 @@ def calculate_pivot_points(high, low, close):
         "s3": safe_round(s3)
     }
 
+# Global cache for benchmark data (Nifty 50) to avoid redundant API calls
+_BENCHMARK_CACHE = {"data": None, "timestamp": None}
+
 def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
-    """Calculates Relative Strength against Nifty 50."""
+    """Calculates Relative Strength against Nifty 50 (with caching)."""
+    global _BENCHMARK_CACHE
     try:
-        nifty = yf.Ticker("^NSEI").history(period="1y")
-        if not nifty.empty and len(nifty) >= 21:
+        now = datetime.now()
+        # Cache for 1 hour
+        if (_BENCHMARK_CACHE["data"] is None or 
+            _BENCHMARK_CACHE["timestamp"] is None or 
+            now - _BENCHMARK_CACHE["timestamp"] > timedelta(hours=1)):
+            
+            logger.info("📡 Fetching Nifty 50 benchmark data for RS calculation...")
+            nifty = yf.Ticker("^NSEI").history(period="2y") # 2y to ensure enough 1y growth data
+            if not nifty.empty:
+                _BENCHMARK_CACHE["data"] = nifty
+                _BENCHMARK_CACHE["timestamp"] = now
+        
+        nifty = _BENCHMARK_CACHE["data"]
+        if nifty is not None and not nifty.empty and len(nifty) >= 21:
             n_curr = nifty['Close'].iloc[-1]
             n_1m = nifty['Close'].iloc[-21]
             n_1y = nifty['Close'].iloc[0]
@@ -176,6 +208,7 @@ def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
         logger.error(f"Error calculating RS for {symbol}: {e}")
         pass
     return None
+
 
 def get_multi_tf_rsi(symbol, df_daily=None):
     """Calculates RSI for Daily and Weekly timeframes using provided daily data."""
@@ -199,8 +232,9 @@ def get_multi_tf_rsi(symbol, df_daily=None):
         
         # 3. Monthly RSI - Resample from Daily
         if df_daily is not None and not df_daily.empty:
-            m_df = df_daily['Close'].resample('M').last()
+            m_df = df_daily['Close'].resample('ME').last()
             if len(m_df) > 14:
+
                 m_rsi = calculate_rsi(m_df).iloc[-1]
                 results["monthly"] = safe_round(m_rsi)
                     
@@ -228,7 +262,7 @@ def compute_ema_series(series: pd.Series, span: int, n: int = 90) -> list:
 
 def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, wk52_low,
                            rs_data, eps_growth_pct=None, revenue_growth_pct=None,
-                           margin_expanding=None, earnings_surprise=None):
+                           margin_expanding=None, earnings_surprise=None, sma_150=None):
     """
     Evaluate the Stan Weinstein / Minervini Trend Template.
     Returns a dict with per-criterion pass/fail and an overall score.
@@ -245,14 +279,15 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
 
     # ── Technical Criteria ────────────────────────────────────────
     # 1. Price > 50, 150, 200 SMAs
-    p50   = (price > sma_50)  if (price and sma_50)  else False
-    p150  = (price > sma_20)  if (price and sma_20)  else False   # Using 20 SMA as proxy for 150 since we calculate it
-    p200  = (price > sma_200) if (price and sma_200) else False
+    p50   = bool(price > sma_50)   if (price and sma_50)   else False
+    p150  = bool(price > sma_150)  if (price and sma_150)  else False
+    p200  = bool(price > sma_200)  if (price and sma_200)  else False
     add_check("Price > 50 SMA",  p50,  f"₹{price:.0f} vs ₹{sma_50:.0f}"  if (price and sma_50)  else "N/A")
+    add_check("Price > 150 SMA", p150, f"₹{price:.0f} vs ₹{sma_150:.0f}" if (price and sma_150) else "N/A")
     add_check("Price > 200 SMA", p200, f"₹{price:.0f} vs ₹{sma_200:.0f}" if (price and sma_200) else "N/A")
 
     # 2. 50 SMA > 200 SMA (MA alignment)
-    ma_align = (sma_50 > sma_200) if (sma_50 and sma_200) else False
+    ma_align = bool(sma_50 > sma_200) if (sma_50 and sma_200) else False
     add_check("50 SMA > 200 SMA", ma_align,
               f"₹{sma_50:.0f} vs ₹{sma_200:.0f}" if (sma_50 and sma_200) else "N/A")
 
@@ -265,7 +300,7 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
         if len(sma200_series.dropna()) > 21:
             sma200_val_1m = sma200_series.iloc[-22]
             if not pd.isna(sma200_val_1m):
-                sma200_trending_up = sma_200 > float(sma200_val_1m)
+                sma200_trending_up = bool(sma_200 > float(sma200_val_1m))
     except Exception:
         pass
     add_check("200 SMA Trending Up", sma200_trending_up,
@@ -274,14 +309,14 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
     # 4. Price within 25% of 52-week HIGH
     near_high = False
     if price and wk52_high:
-        near_high = price >= (wk52_high * 0.75)
+        near_high = bool(price >= (wk52_high * 0.75))
     add_check("Within 25% of 52W High", near_high,
               f"{((price/wk52_high)-1)*100:.1f}%" if (price and wk52_high) else "N/A")
 
     # 5. Price at least 30% above 52-week LOW
     above_low = False
     if price and wk52_low:
-        above_low = price >= (wk52_low * 1.30)
+        above_low = bool(price >= (wk52_low * 1.30))
     add_check("30%+ Above 52W Low", above_low,
               f"+{((price/wk52_low)-1)*100:.1f}%" if (price and wk52_low) else "N/A")
 
@@ -320,7 +355,7 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
         rs_1y = rs_data.get("nifty_1y") or 0
         # Simple mapping: outperform Nifty by >10% → RS 80+, >5% → RS 70+
         rs_score_val = 50 + rs_1y  # rough
-        rs_ok = rs_score_val > 70
+        rs_ok = bool(rs_score_val > 70)
     add_check("Relative Strength > 70", rs_ok,
               f"~{rs_score_val:.0f}" if rs_score_val is not None else "N/A",
               group="Other")
@@ -336,7 +371,7 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
         "total": total,
         "score_pct": score_pct,
     }
-def analyze(symbol):
+def analyze(symbol, chart_period="3mo"):
     """Main analysis function."""
     try:
         # Normalization for Indian stocks and indices
@@ -348,7 +383,7 @@ def analyze(symbol):
         elif not symbol.startswith("^") and not symbol.endswith(".NS"):
             symbol = f"{symbol.upper()}.NS"
             
-        logger.info(f"Analyzing {symbol}...")
+        logger.info(f"Analyzing {symbol} with period {chart_period}...")
         
         # 1. Price Data - Fetch 5y once using get_historical_data
         df_full = get_historical_data(symbol, period="5y")
@@ -372,6 +407,19 @@ def analyze(symbol):
         history_1w = df['Close'].iloc[-5] if len(df) >= 5 else df['Close'].iloc[0]
         change_1w_pct = ((current_price - history_1w) / history_1w) * 100
         
+        # Map chart_period to bars
+        period_map = {
+            "1w": 5,
+            "1m": 21,
+            "3m": 63,
+            "3mo": 63,
+            "6m": 126,
+            "6mo": 126,
+            "1y": 252,
+            "max": len(df_full)
+        }
+        bars = period_map.get(chart_period.lower(), 90)
+        
         history_1m = df['Close'].iloc[-21] if len(df) >= 21 else df['Close'].iloc[0]
         change_1m_pct = ((current_price - history_1m) / history_1m) * 100
         
@@ -381,6 +429,7 @@ def analyze(symbol):
         # SMAs
         sma_20 = df['Close'].rolling(window=20).mean().iloc[-1]
         sma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
+        sma_150 = df_full['Close'].rolling(window=150).mean().iloc[-1]
         sma_200 = df_full['Close'].rolling(window=200).mean().iloc[-1]
         
         # MACD
@@ -403,6 +452,9 @@ def analyze(symbol):
         # Relative Strength
         rs_data = get_relative_strength(symbol, change_1m_pct, change_1y_pct)
         
+        # Technical Indicators (TA library)
+        technical_indicators = calculate_all_technical_indicators(df_full)
+        
         # Pivot Points
         try:
             pivot_data = calculate_pivot_points(df['High'].iloc[-1], df['Low'].iloc[-1], df['Close'].iloc[-1])
@@ -414,8 +466,9 @@ def analyze(symbol):
         ema_50_val  = compute_ema(df['Close'], 50)
         ema_200_val = compute_ema(df_full['Close'], 200)
 
-        # Chart Data – 90 days with OHLC + volume for candlestick + EMA lines
-        chart_df = df.tail(90)
+
+        # Chart Data – based on requested bars with OHLC + volume for candlestick + EMA lines
+        chart_df = df_full.tail(bars)
         chart_dates   = [d.strftime("%Y-%m-%d") for d in chart_df.index]
         chart_opens   = [safe_round(v) for v in chart_df['Open']]
         chart_highs   = [safe_round(v) for v in chart_df['High']]
@@ -423,11 +476,21 @@ def analyze(symbol):
         chart_closes  = [safe_round(v) for v in chart_df['Close']]
         chart_volumes = [int(v) for v in chart_df['Volume']]
 
-        # EMA series (last 90 bars)
-        ema20_series  = compute_ema_series(df_full['Close'], 20,  90)
-        ema50_series  = compute_ema_series(df_full['Close'], 50,  90)
-        ema200_series = compute_ema_series(df_full['Close'], 200, 90)
-        
+        # EMA series (last 'bars' bars)
+        ema20_series  = compute_ema_series(df_full['Close'], 20,  bars)
+        ema50_series  = compute_ema_series(df_full['Close'], 50,  bars)
+        ema200_series = compute_ema_series(df_full['Close'], 200, bars)
+
+        # Volume SMA series (20-period) for volume panel
+        vol_sma_series = []
+        try:
+            vol_full = df_full['Volume'].astype(float)
+            vol_sma_raw = vol_full.rolling(window=20, min_periods=1).mean()
+            vol_sma_chart = vol_sma_raw.tail(bars)
+            vol_sma_series = [int(v) if not pd.isna(v) else 0 for v in vol_sma_chart]
+        except Exception:
+            vol_sma_series = []
+
         # 2. Options Data (NSE)
         nse_symbol = symbol
         is_nse_index = False
@@ -476,19 +539,21 @@ def analyze(symbol):
             "macd_histogram": safe_round(macd_hist),
             "volume_trend": vol_trend,
             "rsi": rsi_data,
+            "technical_indicators": technical_indicators,
             "ema_20":  ema_20_val,
             "ema_50":  ema_50_val,
             "ema_200": ema_200_val,
             "chart": {
-                "dates":   chart_dates,
-                "opens":   chart_opens,
-                "highs":   chart_highs,
-                "lows":    chart_lows,
-                "closes":  chart_closes,
-                "volumes": chart_volumes,
-                "ema20":   ema20_series,
-                "ema50":   ema50_series,
-                "ema200":  ema200_series,
+                "dates":    chart_dates,
+                "opens":    chart_opens,
+                "highs":    chart_highs,
+                "lows":     chart_lows,
+                "closes":   chart_closes,
+                "volumes":  chart_volumes,
+                "vol_sma":  vol_sma_series,
+                "ema20":    ema20_series,
+                "ema50":    ema50_series,
+                "ema200":   ema200_series,
             },
             "performance": [
                 {"period": "1D", "pct": safe_round(change_1d_pct)},
@@ -600,8 +665,9 @@ def analyze(symbol):
                 df_full=df_full, wk52_high=wk52_high, wk52_low=wk52_low,
                 rs_data=rs_data, eps_growth_pct=eps_grow_pct, 
                 revenue_growth_pct=rev_grow_pct, margin_expanding=margin_expanding,
-                earnings_surprise=earnings_surprise
+                earnings_surprise=earnings_surprise, sma_150=sma_150
             )
+
         except Exception as tte:
             logger.warning(f"Trend Template computation failed for {symbol}: {tte}")
                 

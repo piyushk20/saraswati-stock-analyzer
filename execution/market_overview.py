@@ -1,12 +1,11 @@
 import yfinance as yf
 import pandas as pd
 import json
-import traceback
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("market_overview")
 
 # Define Major Indices
 INDICES = {
@@ -17,8 +16,7 @@ INDICES = {
 }
 
 def get_universe_symbols(category="nifty50"):
-    """Duplicate logic or import from screener to get symbols by category."""
-    # Hardcoded Nifty 50 for speed
+    """Fetch symbols based on category."""
     nifty50 = [
         "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS",
         "SBIN.NS", "INFY.NS", "LICI.NS", "ITC.NS", "HINDUNILVR.NS",
@@ -48,100 +46,70 @@ def get_universe_symbols(category="nifty50"):
     except:
         return nifty50
 
-def fetch_market_overview(category="nifty50"):
+def _fetch_single_overview(symbol: str, name: str = None) -> dict | None:
+    """Fetch 5-day performance for a single symbol."""
     try:
-        results = {
-            "indices": [],
-            "top_gainers": [],
-            "top_losers": []
+        t = yf.Ticker(symbol)
+        df = t.history(period="5d", interval="1d", auto_adjust=True, timeout=10)
+        
+        if df is None or len(df) < 2:
+            return None
+            
+        df = df.dropna(subset=["Close"])
+        curr = float(df['Close'].iloc[-1])
+        prev = float(df['Close'].iloc[-2])
+        high = float(df['High'].iloc[-1])
+        low  = float(df['Low'].iloc[-1])
+        
+        return {
+            "symbol": symbol,
+            "name": name or symbol.replace(".NS", ""),
+            "price": round(curr, 2),
+            "change_pct": round(((curr - prev) / prev) * 100, 2),
+            "high": round(high, 2),
+            "low": round(low, 2)
         }
+    except:
+        return None
 
-        # 1. Fetch Indices Data (One by one for robustness)
-        for symbol, name in INDICES.items():
-            try:
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(period="5d")
+def fetch_market_overview(category="nifty50"):
+    """Fetch market overview with parallel processing."""
+    results = {
+        "indices": [],
+        "top_gainers": [],
+        "top_losers": []
+    }
+    
+    # 1. Fetch Indices
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(_fetch_single_overview, s, n): s for s, n in INDICES.items()}
+        for fut in as_completed(futures):
+            res = fut.result()
+            if res:
+                results["indices"].append(res)
                 
-                if df is None or df.empty:
-                    logger.warning(f"No data for index {symbol}")
-                    continue
-                    
-                df = df.dropna()
-                if len(df) >= 2:
-                    current_close = float(df['Close'].iloc[-1])
-                    prev_close = float(df['Close'].iloc[-2])
-                    day_high = float(df['High'].iloc[-1])
-                    day_low = float(df['Low'].iloc[-1])
-                    
-                    pct_change = ((current_close - prev_close) / prev_close) * 100
-                    
-                    results["indices"].append({
-                        "symbol": symbol.replace('^', ''), # Strip ^ for cleaner display if needed, but app.js handles it
-                        "symbol_raw": symbol,
-                        "name": name,
-                        "price": round(current_close, 2),
-                        "change_pct": round(pct_change, 2),
-                        "high": round(day_high, 2),
-                        "low": round(day_low, 2)
-                    })
-            except Exception as e:
-                logger.error(f"Error processing index {symbol}: {e}")
-
-        # 2. Fetch Universe Data for Gainers/Losers
-        universe = get_universe_symbols(category)
-        
-        # We still use download for stocks as it's faster for large lists
-        # but we handle errors better
-        stocks_data = yf.download(universe, period="5d", group_by="ticker", progress=False)
-        
-        performance = []
-        
-        for symbol in universe:
-            try:
-                if len(universe) == 1:
-                    df = stocks_data
-                else:
-                    if symbol not in stocks_data.columns.levels[0]:
-                        continue
-                    df = stocks_data[symbol]
-                    
-                if df is None or df.empty or 'Close' not in df:
-                    continue
-                df = df.dropna()
+    # 2. Fetch Universe for Gainers/Losers
+    universe = get_universe_symbols(category)
+    performance = []
+    
+    logger.info(f"Fetching overview for {len(universe)} symbols in {category}...")
+    
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_fetch_single_overview, s): s for s in universe}
+        for fut in as_completed(futures):
+            res = fut.result()
+            if res:
+                performance.append(res)
                 
-                if len(df) >= 2:
-                    current_close = float(df['Close'].iloc[-1])
-                    prev_close = float(df['Close'].iloc[-2])
-                    
-                    pct_change = ((current_close - prev_close) / prev_close) * 100
-                    
-                    performance.append({
-                        "symbol": symbol,
-                        "change_pct": round(pct_change, 2),
-                        "price": round(current_close, 2)
-                    })
-            except Exception as e:
-                continue
-                
-        # Sort to find top gainers and losers
-        performance.sort(key=lambda x: x["change_pct"], reverse=True)
-        
-        # Take top 5 gainers
-        results["top_gainers"] = performance[:5]
-        
-        # Take top 5 losers
-        results["top_losers"] = performance[-5:]
-        results["top_losers"].sort(key=lambda x: x["change_pct"])
-        
-        return results
-
-    except Exception as e:
-        logger.error(f"Fatal error in fetch_market_overview: {e}")
-        return {"error": f"Failed to fetch market overview: {str(e)}"}
+    # Sort and slice
+    performance.sort(key=lambda x: x["change_pct"], reverse=True)
+    results["top_gainers"] = performance[:5]
+    
+    losers = performance[-5:]
+    losers.sort(key=lambda x: x["change_pct"])
+    results["top_losers"] = losers
+    
+    return results
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--category", default="nifty50")
-    args = parser.parse_args()
-    print(json.dumps(fetch_market_overview(args.category), indent=2))
+    print(json.dumps(fetch_market_overview(), indent=2))

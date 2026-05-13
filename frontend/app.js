@@ -1,16 +1,19 @@
 // app.js
-console.log("🚀 APP.JS LOADED v4! 🚀");
+console.log("🚀 APP.JS LOADED v5! 🚀");
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
 
-// Backend (uvicorn) always on 8000; static file server on 8081
+// Backend (uvicorn) always on 8001; static file server on 8081
 // window.API_BASE used by all fetch calls
-window.API_BASE = isLocal ? window.location.protocol + "//" + window.location.hostname + ":8000" : "";
+window.API_BASE = isLocal ? window.location.protocol + "//" + window.location.hostname + ":8001" : "";
 
 let chartInstance = null;
-let activeApiPort = "8000"; // Legacy reference — use window.API_BASE instead
+let activeApiPort = "8001"; // Legacy reference — use window.API_BASE instead
 let currentMomentumCategory = localStorage.getItem('lastCategory') || 'nifty50';
 let currentSymbol = null; // To prevent race conditions
+let currentPeriod = localStorage.getItem('lastPeriod') || '3m'; 
+let currentTaData = null; // Global store for the active stock's detailed technical data
+
 
 window.changeMomentumCategory = function(cat) {
   currentMomentumCategory = cat;
@@ -76,8 +79,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       hideOverlay("loadingOverlay");
       
-      // Load last since it's heavier
-      try { await loadVcpScreenerData(); } catch(e){}
+      // Load screeners as fire-and-forget so they scan in parallel without blocking UI
+      loadVcpScreenerData().catch(e => console.error('VCP scan error:', e));
+      loadEpScreenerData().catch(e => console.error('EP scan error:', e));
+      loadRsiScreenerData().catch(e => console.error('RSI scan error:', e));
     };
     initData();
   } else {
@@ -152,6 +157,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (screenerBox) screenerBox.style.display = "block";
       const vcpBox = document.getElementById("vcpBox");
       if (vcpBox) vcpBox.style.display = "block";
+      const epBox = document.getElementById("epBox");
+      if (epBox) epBox.style.display = "flex";
+      const rsiScreenerBox = document.getElementById("rsiScreenerBox");
+      if (rsiScreenerBox) rsiScreenerBox.style.display = "flex";
       
       // Ensure data is loaded
       if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
@@ -162,16 +171,55 @@ document.addEventListener("DOMContentLoaded", () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }
+
+  // Period Selector Event Delegation
+  
+  // TA Indicator Select Event
+  const taSelect = document.getElementById("taIndicatorSelect");
+  if (taSelect) {
+    taSelect.addEventListener("change", (e) => {
+      renderTaDetails(e.target.value);
+    });
+  }
 });
 
-async function loadStockDashboard(symbol) {
+
+async function loadStockDashboard(symbol, period = null) {
   if (!symbol) return;
   
+  // Clear search bar and reset dropdown visibility
+  const stockSearch = document.getElementById("stockSearch");
+  if (stockSearch) stockSearch.value = "";
+  const stockSelector = document.getElementById("stockSelector");
+  if (stockSelector) {
+    for (let i = 1; i < stockSelector.options.length; i++) {
+      stockSelector.options[i].style.display = "";
+    }
+  }
+  
+  if (period) {
+    currentPeriod = period;
+  } else {
+    // Sync UI with currentPeriod when opening dashboard
+    const activeBtn = document.querySelector(`.period-btn[data-period="${currentPeriod}"]`);
+    if (activeBtn) {
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      activeBtn.classList.add('active');
+    }
+  }
+
   localStorage.setItem('lastStock', symbol);
+  localStorage.setItem('lastPeriod', currentPeriod);
   
   showOverlay("loadingOverlay");
   hideOverlay("errorOverlay");
-  document.getElementById("dashboardEl").style.display = "none";
+  
+  // Only hide the main dashboard element if it's a NEW symbol
+  // If it's just a period change, we might want to show a smaller loader inside the chart card instead,
+  // but for now, full overlay is safer to avoid Chart.js artifacts.
+  if (!period) {
+     document.getElementById("dashboardEl").style.display = "none";
+  }
   
   // Hide initial dashboard and parts
   const initialDashboard = document.getElementById("initialDashboard");
@@ -182,9 +230,9 @@ async function loadStockDashboard(symbol) {
   try {
     currentSymbol = symbol;
     // Backend (uvicorn) is on port 8000; frontend HTTP server is on 8081
-    const fetchUrl = `${window.API_BASE}/api/analyze/${encodeURIComponent(symbol)}?v=${new Date().getTime()}`;
+    const fetchUrl = `${window.API_BASE}/api/analyze/${encodeURIComponent(symbol)}?period=${currentPeriod}&v=${new Date().getTime()}`;
 
-    console.log(`📡 Fetching from: ${fetchUrl}`);
+    console.log(`📡 Fetching from: ${fetchUrl} (Period: ${currentPeriod})`);
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -206,11 +254,13 @@ async function loadStockDashboard(symbol) {
     }
     
     renderDashboard(data);
+    hideOverlay("loadingOverlay"); // Ensure overlay is hidden after successful render
   } catch (err) {
     console.error(err);
     showError(err.message);
   }
 }
+
 
 /**
  * GLOBAL: Change Momentum Category
@@ -321,6 +371,7 @@ async function loadVcpScreenerData() {
   vcpBody.innerHTML = `<tr><td colspan="2" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for VCP...</div></td></tr>`;
   
   try {
+    console.log("📡 Fetching VCP Screener data...");
     const fetchUrl = `${window.API_BASE}/api/screener/vcp?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
@@ -363,6 +414,150 @@ async function loadVcpScreenerData() {
       vcpBody.innerHTML = `<tr><td colspan="2" style="color:red; text-align:center; padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
     }
     console.error("VCP fetch error:", err);
+  }
+}
+
+// -----------------------------------------------------------------
+// EP (EPISODIC PIVOT) SCREENER
+// -----------------------------------------------------------------
+async function loadEpScreenerData() {
+  const epBody = document.getElementById("epScreenerBody");
+  if (!epBody) return;
+
+  epBody.innerHTML = `<tr><td colspan="8" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for Episodic Pivots...</div></td></tr>`;
+
+  try {
+    console.log("📡 Fetching EP Screener data...");
+    const fetchUrl = `${window.API_BASE}/api/screener/ep?v=${new Date().getTime()}`;
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      cache: "no-store"
+    });
+
+    if (!resp.ok) throw new Error(`EP screener request failed: ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.ep_stocks && data.ep_stocks.length > 0) {
+      epBody.innerHTML = "";
+      data.ep_stocks.forEach(stock => {
+        const scoreVal = stock.score || 0;
+        const scoreClass = scoreVal >= 75 ? "ep-score-high" : scoreVal >= 55 ? "ep-score-mid" : "ep-score-low";
+        const dist52  = stock.pct_from_52h != null ? stock.pct_from_52h : null;
+        const dist52Class = dist52 !== null && dist52 >= -10 ? "text-green" : "text-amber";
+        const daysAgo = stock.days_ago === 0 ? "Today" : stock.days_ago === 1 ? "Yesterday" : `${stock.days_ago}d ago`;
+
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td><strong>${sanitize(stock.display_symbol || stock.symbol)}</strong></td>
+          <td style="font-family:var(--font-mono)">₹${sanitize(String(stock.price))}</td>
+          <td class="text-green bold">+${sanitize(String(stock.gap_pct))}%</td>
+          <td class="text-amber">${sanitize(String(stock.rvol))}x</td>
+          <td><span class="ep-score-pill ${sanitize(scoreClass)}">${sanitize(String(scoreVal))}</span></td>
+          <td>${stock.is_stage2 ? '<span class="stage2-badge">✓ S2</span>' : '<span style="color:var(--text-muted)">—</span>'}</td>
+          <td class="${sanitize(dist52Class)}">${dist52 !== null ? dist52 + '%' : '—'}</td>
+          <td style="color:var(--text-muted);font-size:0.8rem">${sanitize(daysAgo)}</td>
+        `;
+        tr.addEventListener("click", () => {
+          const sym = stock.symbol || stock.display_symbol;
+          const select = document.getElementById("stockSelector");
+          if (!Array.from(select.options).some(o => o.value === sym)) {
+            const tempOpt = document.createElement("option");
+            tempOpt.value = sym;
+            tempOpt.text = stock.display_symbol || sym;
+            select.add(tempOpt);
+          }
+          select.value = sym;
+          select.dispatchEvent(new Event('change'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        epBody.appendChild(tr);
+      });
+
+      // Show metadata footer
+      const scanned  = data.scanned  || '?';
+      const found    = data.found    || data.ep_stocks.length;
+      const ts       = data.timestamp || '';
+      const footer   = document.createElement("tr");
+      footer.innerHTML = `<td colspan="8" style="text-align:center;color:var(--text-muted);font-size:0.75rem;padding:0.6rem;">Found ${sanitize(String(found))} EP setups from ${sanitize(String(scanned))} stocks · ${sanitize(ts)}</td>`;
+      epBody.appendChild(footer);
+
+    } else {
+      epBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:2rem;">No Episodic Pivot setups found today. Markets may be quiet or all gaps are below threshold.</td></tr>`;
+    }
+
+  } catch(err) {
+    if (epBody) {
+      epBody.innerHTML = `<tr><td colspan="8" style="color:var(--accent-magenta);text-align:center;padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
+    }
+    console.error("EP scan fetch error:", err);
+  }
+}
+
+// MULTI-TIMEFRAME RSI SCREENER
+// -----------------------------------------------------------------
+async function loadRsiScreenerData() {
+  const rsiBody = document.getElementById("rsiScreenerBody");
+  if (!rsiBody) return;
+
+  rsiBody.innerHTML = `<tr><td colspan="5" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for Multi-Timeframe RSI setups...</div></td></tr>`;
+
+  try {
+    console.log("📡 Fetching RSI Screener data...");
+    const fetchUrl = `${window.API_BASE}/api/screener/rsi?v=${new Date().getTime()}`;
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      cache: "no-store"
+    });
+
+    if (!resp.ok) throw new Error(`RSI screener request failed: ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.rsi_stocks && data.rsi_stocks.length > 0) {
+      rsiBody.innerHTML = "";
+      data.rsi_stocks.forEach(stock => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td><strong>${sanitize(stock.display_symbol || stock.symbol)}</strong></td>
+          <td style="font-family:var(--font-mono)">₹${sanitize(String(stock.price))}</td>
+          <td class="text-green bold">${sanitize(String(stock.monthly_rsi))}</td>
+          <td class="text-green bold">${sanitize(String(stock.weekly_rsi))}</td>
+          <td class="text-magenta bold" style="color:#ff00ff;">${sanitize(String(stock.daily_rsi))}</td>
+        `;
+        tr.addEventListener("click", () => {
+          const sym = stock.symbol || stock.display_symbol;
+          const select = document.getElementById("stockSelector");
+          if (!Array.from(select.options).some(o => o.value === sym)) {
+            const tempOpt = document.createElement("option");
+            tempOpt.value = sym;
+            tempOpt.text = stock.display_symbol || sym;
+            select.add(tempOpt);
+          }
+          select.value = sym;
+          select.dispatchEvent(new Event('change'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        rsiBody.appendChild(tr);
+      });
+
+      // Show metadata footer
+      const scanned  = data.scanned  || '?';
+      const found    = data.found    || data.rsi_stocks.length;
+      const ts       = data.timestamp || '';
+      const footer   = document.createElement("tr");
+      footer.innerHTML = `<td colspan="5" style="text-align:center;color:var(--text-muted);font-size:0.75rem;padding:0.6rem;">Found ${sanitize(String(found))} Multi-Timeframe RSI setups from ${sanitize(String(scanned))} stocks · ${sanitize(ts)}</td>`;
+      rsiBody.appendChild(footer);
+
+    } else {
+      rsiBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">No Multi-Timeframe RSI setups found today.</td></tr>`;
+    }
+
+  } catch(err) {
+    if (rsiBody) {
+      rsiBody.innerHTML = `<tr><td colspan="5" style="color:var(--accent-magenta);text-align:center;padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
+    }
+    console.error("RSI scan fetch error:", err);
   }
 }
 
@@ -558,6 +753,7 @@ function renderDashboard(data) {
   renderMetrics(data);
   renderTechGrid(data);
   renderMultiRSI(data);
+  renderVolatility(data);
   renderFinancials(data);
   renderFundamentals(data);
   renderPivotGrid(data);
@@ -566,6 +762,13 @@ function renderDashboard(data) {
   renderOptionsData(data);
   renderPerformance(data);
   renderTrendTemplate(data);
+  
+  // New: TA Explorer
+  currentTaData = data.technical_indicators || null;
+  const taSelect = document.getElementById("taIndicatorSelect");
+  if (taSelect) {
+    renderTaDetails(taSelect.value);
+  }
 }
 
 // ─── CANDLESTICK CHART WITH EMA OVERLAYS ─────────────────────────────────────
@@ -963,6 +1166,81 @@ function renderMultiRSI(data) {
   renderCard("rsiMonthlyCard", "Monthly RSI", data.rsi ? data.rsi.monthly : null);
 }
 
+function renderVolatility(data) {
+  const box = document.getElementById("volatilityBox");
+  const ti = data.technical_indicators || {};
+  const vol = {
+    adx: ti.adx?.adx,
+    adx_pos: ti.adx?.pos,
+    adx_neg: ti.adx?.neg,
+    bb_high: ti.bollinger?.high,
+    bb_mid: ti.bollinger?.mid,
+    bb_low: ti.bollinger?.low
+  };
+  
+  if (!ti.adx || !box) {
+      if (box) box.style.display = "none";
+      return;
+  }
+  box.style.display = "block";
+
+  // ADX Card
+  const adx = vol.adx;
+  let adxColor = "var(--text-main)", adxSignal = "WEAK TREND", adxClass = "neutral";
+  if (adx !== null && adx !== undefined) {
+    if (adx > 50) { adxColor = "var(--accent-gold)"; adxSignal = "EXTREME TREND"; adxClass = "bullish"; }
+    else if (adx > 25) { adxColor = "var(--accent-cyan)"; adxSignal = "STRONG TREND"; adxClass = "bullish"; }
+    else if (adx < 20) { adxColor = "var(--text-muted)"; adxSignal = "SIDEWAYS"; adxClass = "neutral"; }
+  }
+  
+  const adxCard = document.getElementById("adxCard");
+  if (adxCard) {
+    adxCard.innerHTML = `
+      <div class="indicator-label">ADX Trend Strength</div>
+      <div class="indicator-val-primary" style="color:${sanitize(adxColor)}">${(adx !== null && adx !== undefined) ? adx.toFixed(1) : "N/A"}</div>
+      <div class="signal-badge ${sanitize(adxClass)}">${sanitize(adxSignal)}</div>
+    `;
+  }
+
+  // BB Card
+  const current = data.price || 0;
+  const bbHigh = vol.bb_high;
+  const bbLow = vol.bb_low;
+  let bbSignal = "NEUTRAL", bbClass = "neutral", bbColor = "var(--text-main)";
+  
+  if (current && bbHigh && current >= bbHigh) { bbSignal = "OVEREXTENDED"; bbClass = "bearish"; bbColor = "var(--negative)"; }
+  else if (current && bbLow && current <= bbLow) { bbSignal = "OVERSOLD"; bbClass = "bullish"; bbColor = "var(--positive)"; }
+
+  const bbCard = document.getElementById("bbCard");
+  if (bbCard) {
+    bbCard.innerHTML = `
+      <div class="indicator-label">Bollinger Bands</div>
+      <div class="indicator-val-primary" style="color:${sanitize(bbColor)}">${current > 0 ? "BB" : "N/A"}</div>
+      <div class="signal-badge ${sanitize(bbClass)}">${sanitize(bbSignal)}</div>
+    `;
+  }
+
+  const items = [
+    { label: "ADX (Trend)", value: vol.adx },
+    { label: "+DI (Bull)", value: vol.adx_pos, klass: "text-up" },
+    { label: "-DI (Bear)", value: vol.adx_neg, klass: "text-down" },
+    { label: "BB Upper", value: fmt(vol.bb_high) },
+    { label: "BB Middle", value: fmt(vol.bb_mid) },
+    { label: "BB Lower", value: fmt(vol.bb_low) }
+  ];
+
+  const grid = document.getElementById("volatilityDataGrid");
+  if (grid) {
+    grid.innerHTML = items.map(item =>
+      `<div class="data-row">
+        <div class="data-label">${sanitize(item.label)}</div>
+        <div class="data-value ${sanitize(item.klass || "")}">${sanitize(item.value)}</div>
+      </div>`
+    ).join("");
+  }
+}
+
+
 function renderFundamentals(data) {
   const isIndex = data.sector === "Index" || !("pe_ratio" in data);
   const box = document.getElementById("fundamentalsBox");
@@ -1155,6 +1433,93 @@ function renderOptionsData(data) {
   ).join("");
 }
 
+function renderTaDetails(type) {
+  const container = document.getElementById("taIndicatorDetails");
+  if (!container) return;
+  
+  if (!currentTaData) {
+    container.innerHTML = `<div class="placeholder-text">Technical data unavailable for this symbol.</div>`;
+    return;
+  }
+  
+  const data = currentTaData[type];
+  if (!data && type !== 'ichimoku' && type !== 'stochastic' && type !== 'keltner' && type !== 'bollinger' && type !== 'adx') {
+    // For simple numeric values (atr, vwap, mfi, cci, williams_r)
+    if (currentTaData[type] === undefined) {
+      container.innerHTML = `<div class="placeholder-text">Indicator data not calculated.</div>`;
+      return;
+    }
+  }
+
+  let html = "";
+  
+  switch(type) {
+    case 'bollinger':
+      html = renderDataRows([
+        { label: "Upper Band", value: fmt(data?.high) },
+        { label: "Middle Band (SMA 20)", value: fmt(data?.mid) },
+        { label: "Lower Band", value: fmt(data?.low) }
+      ]);
+      break;
+    case 'keltner':
+      html = renderDataRows([
+        { label: "Upper Channel", value: fmt(data?.high) },
+        { label: "Middle Line", value: fmt(data?.mid) },
+        { label: "Lower Channel", value: fmt(data?.low) }
+      ]);
+      break;
+    case 'ichimoku':
+      html = renderDataRows([
+        { label: "Senkou Span A", value: fmt(data?.span_a) },
+        { label: "Senkou Span B", value: fmt(data?.span_b) },
+        { label: "Kijun-sen (Base)", value: fmt(data?.base) },
+        { label: "Tenkan-sen (Conversion)", value: fmt(data?.conversion) }
+      ]);
+      break;
+    case 'adx':
+      html = renderDataRows([
+        { label: "ADX (Trend Strength)", value: data?.adx },
+        { label: "+DI (Bullish Strength)", value: data?.pos, klass: "text-up" },
+        { label: "-DI (Bearish Strength)", value: data?.neg, klass: "text-down" }
+      ]);
+      break;
+    case 'stochastic':
+      html = renderDataRows([
+        { label: "%K (Fast)", value: data?.k },
+        { label: "%D (Slow/Signal)", value: data?.d }
+      ]);
+      break;
+    case 'atr':
+      html = renderDataRows([{ label: "Average True Range", value: fmt(currentTaData.atr) }]);
+      break;
+    case 'vwap':
+      html = renderDataRows([{ label: "VWAP", value: fmt(currentTaData.vwap) }]);
+      break;
+    case 'mfi':
+      html = renderDataRows([{ label: "Money Flow Index", value: currentTaData.mfi }]);
+      break;
+    case 'cci':
+      html = renderDataRows([{ label: "Commodity Channel Index", value: currentTaData.cci }]);
+      break;
+    case 'williams_r':
+      html = renderDataRows([{ label: "Williams %R", value: currentTaData.williams_r }]);
+      break;
+    default:
+      html = `<div class="placeholder-text">Select an indicator to view details</div>`;
+  }
+  
+  container.innerHTML = html;
+}
+
+function renderDataRows(items) {
+  return items.map(item =>
+    `<div class="data-row">
+      <div class="data-label">${sanitize(item.label)}</div>
+      <div class="data-value ${sanitize(item.klass || "")}">${sanitize(item.value)}</div>
+    </div>`
+  ).join("");
+}
+
 function renderPerformance(data) {
   const perfs = data.performance || [];
   const grid = document.getElementById("perfGrid");
@@ -1280,3 +1645,17 @@ function showError(msg) {
   showOverlay("errorOverlay");
   document.getElementById("errorBox").textContent = msg;
 }
+
+// Global Event Delegation for Period Buttons
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.period-btn');
+  if (!btn) return;
+  const period = btn.getAttribute('data-period');
+  if (period && currentSymbol) {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPeriod = period;
+    localStorage.setItem('lastPeriod', period);
+    loadStockDashboard(currentSymbol, period);
+  }
+});
