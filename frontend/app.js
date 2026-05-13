@@ -755,6 +755,7 @@ function renderDashboard(data) {
   renderMultiRSI(data);
   renderVolatility(data);
   renderFinancials(data);
+  renderHistoricalFinancials(data);
   renderFundamentals(data);
   renderPivotGrid(data);
   renderExtremes(data);
@@ -1130,6 +1131,91 @@ function renderFinancials(data) {
       <div class="data-value ${item.highlight || ""}">${sanitize(item.value)}</div>
     </div>`
   ).join("");
+}
+
+function renderHistoricalFinancials(data) {
+  const tbody = document.getElementById("historicalFinancialsBody");
+  const box = document.getElementById("historicalFinancialsBox");
+  if (!tbody || !box) return;
+  
+  const yearly = data.financials_yearly;
+  if (!yearly || yearly.length === 0) {
+    box.style.display = "none";
+    return;
+  }
+  
+  box.style.display = "block";
+  
+  for (let i = 0; i < 4; i++) {
+    const th = document.getElementById(`year${i}Header`);
+    if (th) {
+      if (yearly[i] && yearly[i].year) {
+         th.textContent = yearly[i].year;
+      } else {
+         th.textContent = `Past Year ${i}`;
+      }
+    }
+  }
+
+  const opmArr = [];
+  const salesGrowthArr = [];
+  const netProfitArr = [];
+  
+  for (let i = 0; i < 4; i++) {
+    const yData = yearly[i];
+    if (!yData) {
+      opmArr.push("-");
+      salesGrowthArr.push("-");
+      netProfitArr.push("-");
+      continue;
+    }
+    
+    // OPM
+    let opm = "-";
+    if (yData.revenue && yData.operating_income) {
+      opm = ((yData.operating_income / yData.revenue) * 100).toFixed(2) + "%";
+    }
+    opmArr.push(opm);
+    
+    // Net Profit
+    let np = yData.net_income ? fmtMktCap(yData.net_income) : "-";
+    netProfitArr.push(np);
+    
+    // Sales Growth
+    let sg = "-";
+    const prevYearData = yearly[i+1];
+    if (yData.revenue && prevYearData && prevYearData.revenue) {
+      const growth = ((yData.revenue - prevYearData.revenue) / prevYearData.revenue) * 100;
+      sg = growth.toFixed(2) + "%";
+    }
+    salesGrowthArr.push(sg);
+  }
+  
+  const html = `
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+      <td style="padding: 10px; font-weight: 500;">OPM (%)</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${opmArr[0]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${opmArr[1]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${opmArr[2]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${opmArr[3]}</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+      <td style="padding: 10px; font-weight: 500;">Sales Growth (%)</td>
+      <td style="padding: 10px; font-family: var(--font-mono);" class="${salesGrowthArr[0].startsWith('-') ? 'text-down' : (salesGrowthArr[0] !== '-' ? 'text-up' : '')}">${salesGrowthArr[0]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);" class="${salesGrowthArr[1].startsWith('-') ? 'text-down' : (salesGrowthArr[1] !== '-' ? 'text-up' : '')}">${salesGrowthArr[1]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);" class="${salesGrowthArr[2].startsWith('-') ? 'text-down' : (salesGrowthArr[2] !== '-' ? 'text-up' : '')}">${salesGrowthArr[2]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);" class="${salesGrowthArr[3].startsWith('-') ? 'text-down' : (salesGrowthArr[3] !== '-' ? 'text-up' : '')}">${salesGrowthArr[3]}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: 500;">Net Profit</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${netProfitArr[0]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${netProfitArr[1]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${netProfitArr[2]}</td>
+      <td style="padding: 10px; font-family: var(--font-mono);">${netProfitArr[3]}</td>
+    </tr>
+  `;
+  
+  tbody.innerHTML = html;
 }
 
 function renderMultiRSI(data) {

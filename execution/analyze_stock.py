@@ -591,11 +591,24 @@ def analyze(symbol, chart_period="3mo"):
                 
                 f_revenue = None; f_net_income = None
                 f_gross_profit = None; f_operating_income = None
+                financials_yearly = []
+                
                 if financials is not None and not financials.empty and len(financials.columns) > 0:
                     f_revenue = safe_get(financials.iloc[:, 0], "Total Revenue")
                     f_net_income = safe_get(financials.iloc[:, 0], "Net Income")
                     f_gross_profit = safe_get(financials.iloc[:, 0], "Gross Profit")
                     f_operating_income = safe_get(financials.iloc[:, 0], "Operating Income")
+                    
+                    # Extract up to 4 years for historical analysis
+                    for i in range(min(4, len(financials.columns))):
+                        col = financials.columns[i]
+                        y_str = str(col)[:10] if hasattr(col, 'strftime') else str(col)
+                        financials_yearly.append({
+                            "year": y_str,
+                            "revenue": safe_get(financials.iloc[:, i], "Total Revenue"),
+                            "operating_income": safe_get(financials.iloc[:, i], "Operating Income"),
+                            "net_income": safe_get(financials.iloc[:, i], "Net Income")
+                        })
                 
                 b_assets = None; b_equity = None
                 b_liabilities = None; b_debt = None
@@ -627,6 +640,7 @@ def analyze(symbol, chart_period="3mo"):
                     "financials_gross_profit": f_gross_profit,
                     "financials_operating_income": f_operating_income,
                     "financials_net_income": f_net_income,
+                    "financials_yearly": financials_yearly,
                     "bs_total_assets": b_assets,
                     "bs_total_liabilities": b_liabilities,
                     "bs_total_equity": b_equity,

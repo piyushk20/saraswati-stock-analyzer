@@ -292,6 +292,7 @@
         </div>
 
 
+
         <!-- Support & Resistance (Pivot Points) -->
         <div class="glass-panel bento-box" id="pivotBox">
           <h2 class="section-title">Key Levels (Daily Pivots)</h2>
@@ -331,7 +332,30 @@
             <!-- Injected via JS -->
           </div>
         </div>
+      </div> <!-- END sub-grids -->
 
+      <!-- Historical Financials -->
+      <div class="glass-panel bento-box" id="historicalFinancialsBox" style="margin-bottom: 1.25rem;">
+        <h2 class="section-title">Historical Performance (Past 4 Years)</h2>
+        <div class="table-container" style="overflow-x: auto;">
+          <table class="financial-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border);">
+                <th style="padding: 10px; color: var(--text-muted); font-size: 0.85rem;">Metric</th>
+                <th style="padding: 10px; color: var(--text-muted); font-size: 0.85rem;" id="year0Header">Current Year</th>
+                <th style="padding: 10px; color: var(--text-muted); font-size: 0.85rem;" id="year1Header">Past Year 1</th>
+                <th style="padding: 10px; color: var(--text-muted); font-size: 0.85rem;" id="year2Header">Past Year 2</th>
+                <th style="padding: 10px; color: var(--text-muted); font-size: 0.85rem;" id="year3Header">Past Year 3</th>
+              </tr>
+            </thead>
+            <tbody id="historicalFinancialsBody">
+              <!-- Injected via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sub-grids">
         <!-- Technical Indicator Explorer -->
         <div class="glass-panel bento-box" id="taExplorerBox">
           <h2 class="section-title">Technical Indicator Explorer</h2>
