@@ -13,7 +13,7 @@ logger = logging.getLogger("vcp_screener")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 VCP_CONFIG = {
-    "MAX_WORKERS": 25,
+    "MAX_WORKERS": 50,
     "DATA_PERIOD": "2y",
     "SYMBOL_CAP":  500,
 }

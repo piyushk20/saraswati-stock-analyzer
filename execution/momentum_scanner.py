@@ -32,7 +32,7 @@ MOMENTUM_CONFIG = {
     "MACD_SIGNAL": 9,
     "VOLUME_SMA_PERIOD": 20,
     "DATA_PERIOD": "1y",
-    "MAX_WORKERS": 20,
+    "MAX_WORKERS": 50,
     "SYMBOL_CAP": 500,
 }
 

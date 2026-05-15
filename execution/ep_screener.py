@@ -36,7 +36,7 @@ EP_CONFIG = {
     "SMA50_FILTER":      True,   # Price must be above 50 SMA
     "HIGH52W_PROXIMITY": 0.70,   # Price >= 70% of 52-week high
     "MIN_PRICE":         20.0,   # Minimum stock price (₹)
-    "MAX_WORKERS":       20,     # Parallel threads
+    "MAX_WORKERS":       50,     # Parallel threads
     "DATA_PERIOD":       "2y",   # yfinance history period
     "SYMBOL_CAP":        500,    # Max symbols to scan
     "LOOKBACK_DAYS":     5,      # Days back to detect EP burst (1=today, 2=incl yesterday, etc)

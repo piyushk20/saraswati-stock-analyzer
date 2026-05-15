@@ -31,8 +31,8 @@ RSI_CONFIG = {
     "DAILY_MIN":   55.0,
     "DAILY_MAX":   65.0,
     "MIN_PRICE":   20.0,
-    "MAX_WORKERS": 20,
-    "DATA_PERIOD": "3y",
+    "MAX_WORKERS": 50,
+    "DATA_PERIOD": "1y",
     "SYMBOL_CAP":  500,
 }
 
