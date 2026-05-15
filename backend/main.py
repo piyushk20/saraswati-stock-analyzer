@@ -322,6 +322,7 @@ def get_market_overview(request: Request, category: str = "nifty50", api_key: st
 vcp_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 ep_cache  = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 rsi_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
+momentum_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 
 @app.get("/api/screener/vcp")
 def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
@@ -393,6 +394,30 @@ def get_rsi_screener(request: Request, api_key: str = Depends(verify_api_key)):
     except Exception as e:
         logger.error("Failed to execute RSI screener scan: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to run RSI screener scan.")
+
+@app.get("/api/screener/momentum")
+def get_momentum_screener(request: Request, api_key: str = Depends(verify_api_key)):
+    global momentum_cache
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+
+    if datetime.now() < momentum_cache["expires_at"] and momentum_cache["data"] is not None:
+        return momentum_cache["data"]
+
+    try:
+        from execution.momentum_scanner import scan_momentum
+        data = scan_momentum()
+        if data.get("error"):
+            raise HTTPException(status_code=500, detail=data["error"])
+
+        logger.info("Momentum Screener found %d stocks", len(data.get("momentum_stocks", [])))
+        data = clean_types(data)
+        momentum_cache["data"] = data
+        momentum_cache["expires_at"] = datetime.now() + timedelta(hours=1)
+        return data
+    except Exception as e:
+        logger.error("Failed to execute Momentum screener scan: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to run Momentum screener scan.")
 
 
 @app.get("/api/market/nse500")

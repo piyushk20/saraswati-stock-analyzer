@@ -202,7 +202,34 @@
           </div>
         </div>
       </div>
-    <!-- END INITIAL DASHBOARD -->
+
+      <!-- Momentum Screener -->
+      <div class="market-tables-grid" style="margin-top:20px;">
+        <div id="momentumBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title text-green">🚀 Screener: NSE Momentum (EMA20 | RSI>50 | MACD | Vol)</h2>
+          <p class="ep-subtitle">Price > EMA(20) &nbsp;·&nbsp; RSI(14) > 50 &nbsp;·&nbsp; MACD Cross &nbsp;·&nbsp; Volume Surge</p>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="momentumTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Price</th>
+                  <th>% > EMA(20)</th>
+                  <th>RSI(14)</th>
+                  <th>MACD Hist</th>
+                  <th>Vol Ratio</th>
+                </tr>
+              </thead>
+              <tbody id="momentumScreenerBody">
+                <tr><td colspan="6" style="text-align:center;">
+                  <div class="pulse-loader">Scanning NSE 500 for Momentum setups...</div>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div> <!-- END INITIAL DASHBOARD -->
 
     <!-- INDIVIDUAL STOCK DETAIL DASHBOARD -->
     <main id="dashboardEl" class="dashboard" style="display: none;">
@@ -409,7 +436,7 @@
   </div>
 
   <script src="config.js"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
 

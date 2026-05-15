@@ -83,6 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadVcpScreenerData().catch(e => console.error('VCP scan error:', e));
       loadEpScreenerData().catch(e => console.error('EP scan error:', e));
       loadRsiScreenerData().catch(e => console.error('RSI scan error:', e));
+      loadMomentumScreenerData().catch(e => console.error('Momentum scan error:', e));
     };
     initData();
   } else {
@@ -161,6 +162,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (epBox) epBox.style.display = "flex";
       const rsiScreenerBox = document.getElementById("rsiScreenerBox");
       if (rsiScreenerBox) rsiScreenerBox.style.display = "flex";
+      const momentumBox = document.getElementById("momentumBox");
+      if (momentumBox) momentumBox.style.display = "flex";
       
       // Ensure data is loaded
       if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
@@ -558,6 +561,79 @@ async function loadRsiScreenerData() {
       rsiBody.innerHTML = `<tr><td colspan="5" style="color:var(--accent-magenta);text-align:center;padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
     }
     console.error("RSI scan fetch error:", err);
+  }
+}
+
+// -----------------------------------------------------------------
+// MOMENTUM SCREENER
+// -----------------------------------------------------------------
+async function loadMomentumScreenerData() {
+  const momentumBody = document.getElementById("momentumScreenerBody");
+  if (!momentumBody) return;
+
+  momentumBody.innerHTML = `<tr><td colspan="6" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for Momentum setups...</div></td></tr>`;
+
+  try {
+    console.log("📡 Fetching Momentum Screener data...");
+    const fetchUrl = `${window.API_BASE}/api/screener/momentum?v=${new Date().getTime()}`;
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      cache: "no-store"
+    });
+
+    if (!resp.ok) throw new Error(`Momentum screener request failed: ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.momentum_stocks && data.momentum_stocks.length > 0) {
+      momentumBody.innerHTML = "";
+      data.momentum_stocks.forEach(stock => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        
+        const histColor = stock.macd_hist >= 0 ? "text-green" : "text-red";
+        const volColor = stock.vol_ratio >= 2.0 ? "text-green bold" : (stock.vol_ratio >= 1.5 ? "text-green" : "text-amber");
+
+        tr.innerHTML = `
+          <td><strong>${sanitize(stock.display_symbol || stock.symbol)}</strong></td>
+          <td style="font-family:var(--font-mono)">₹${sanitize(String(stock.close))}</td>
+          <td class="text-green bold">+${sanitize(String(stock.pct_above_ema))}%</td>
+          <td class="text-magenta">${sanitize(String(stock.rsi))}</td>
+          <td class="${histColor}">${sanitize(String(stock.macd_hist))}</td>
+          <td class="${volColor}">${sanitize(String(stock.vol_ratio))}x</td>
+        `;
+        tr.addEventListener("click", () => {
+          const sym = stock.symbol || stock.display_symbol;
+          const select = document.getElementById("stockSelector");
+          if (!Array.from(select.options).some(o => o.value === sym)) {
+            const tempOpt = document.createElement("option");
+            tempOpt.value = sym;
+            tempOpt.text = stock.display_symbol || sym;
+            select.add(tempOpt);
+          }
+          select.value = sym;
+          select.dispatchEvent(new Event('change'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        momentumBody.appendChild(tr);
+      });
+
+      // Show metadata footer
+      const scanned  = data.scanned  || '?';
+      const found    = data.found    || data.momentum_stocks.length;
+      const ts       = data.timestamp || '';
+      const footer   = document.createElement("tr");
+      footer.innerHTML = `<td colspan="6" style="text-align:center;color:var(--text-muted);font-size:0.75rem;padding:0.6rem;">Found ${sanitize(String(found))} Momentum setups from ${sanitize(String(scanned))} stocks · ${sanitize(ts)}</td>`;
+      momentumBody.appendChild(footer);
+
+    } else {
+      momentumBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">No Momentum setups found today.</td></tr>`;
+    }
+
+  } catch(err) {
+    if (momentumBody) {
+      momentumBody.innerHTML = `<tr><td colspan="6" style="color:var(--accent-magenta);text-align:center;padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
+    }
+    console.error("Momentum scan fetch error:", err);
   }
 }
 
