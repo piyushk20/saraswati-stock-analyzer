@@ -84,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadEpScreenerData().catch(e => console.error('EP scan error:', e));
       loadRsiScreenerData().catch(e => console.error('RSI scan error:', e));
       loadMomentumScreenerData().catch(e => console.error('Momentum scan error:', e));
+      loadFlagScreenerData().catch(e => console.error('Flag scan error:', e));
     };
     initData();
   } else {
@@ -164,6 +165,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (rsiScreenerBox) rsiScreenerBox.style.display = "flex";
       const momentumBox = document.getElementById("momentumBox");
       if (momentumBox) momentumBox.style.display = "flex";
+      const flagBox = document.getElementById("flagBox");
+      if (flagBox) flagBox.style.display = "flex";
       
       // Ensure data is loaded
       if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
@@ -636,6 +639,77 @@ async function loadMomentumScreenerData() {
     console.error("Momentum scan fetch error:", err);
   }
 }
+
+// -----------------------------------------------------------------
+// PERFECT FLAG SCREENER
+// -----------------------------------------------------------------
+async function loadFlagScreenerData() {
+  const flagBody = document.getElementById("flagScreenerBody");
+  if (!flagBody) return;
+
+  flagBody.innerHTML = `<tr><td colspan="6" style="text-align:center;"><div class="pulse-loader" style="color:var(--text-dim)">Scanning NSE 500 for Perfect Flag patterns...</div></td></tr>`;
+
+  try {
+    console.log("📡 Fetching Flag Screener data...");
+    const fetchUrl = `${window.API_BASE}/api/screener/flag?v=${new Date().getTime()}`;
+    const resp = await fetch(fetchUrl, {
+      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      cache: "no-store"
+    });
+
+    if (!resp.ok) throw new Error(`Flag screener request failed: ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.flag_stocks && data.flag_stocks.length > 0) {
+      flagBody.innerHTML = "";
+      data.flag_stocks.forEach(stock => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        
+        const scoreColor = stock.score >= 80 ? "text-green bold" : (stock.score >= 60 ? "text-cyan" : "text-amber");
+
+        tr.innerHTML = `
+          <td><strong>${sanitize(stock.symbol)}</strong></td>
+          <td style="font-family:var(--font-mono)">₹${sanitize(String(stock.price))}</td>
+          <td class="${scoreColor}">${sanitize(String(stock.score))}</td>
+          <td class="text-green">${sanitize(String(stock.gain_pct))}%</td>
+          <td class="text-amber">${sanitize(String(stock.depth_pct))}%</td>
+          <td>${sanitize(stock.rating)}</td>
+        `;
+        tr.addEventListener("click", () => {
+          const sym = stock.symbol;
+          const select = document.getElementById("stockSelector");
+          if (!Array.from(select.options).some(o => o.value === sym)) {
+            const tempOpt = document.createElement("option");
+            tempOpt.value = sym;
+            tempOpt.text = sym;
+            select.add(tempOpt);
+          }
+          select.value = sym;
+          select.dispatchEvent(new Event('change'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        flagBody.appendChild(tr);
+      });
+
+      // Show metadata footer
+      const ts = data.timestamp || '';
+      const footer = document.createElement("tr");
+      footer.innerHTML = `<td colspan="6" style="text-align:center;color:var(--text-muted);font-size:0.75rem;padding:0.6rem;">Found ${sanitize(String(data.flag_stocks.length))} Flag setups · ${sanitize(ts)}</td>`;
+      flagBody.appendChild(footer);
+
+    } else {
+      flagBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">No Perfect Flag patterns found today.</td></tr>`;
+    }
+
+  } catch(err) {
+    if (flagBody) {
+      flagBody.innerHTML = `<tr><td colspan="6" style="color:var(--accent-magenta);text-align:center;padding:20px;">Error: ${sanitize(err.message)}</td></tr>`;
+    }
+    console.error("Flag scan fetch error:", err);
+  }
+}
+
 
 // -----------------------------------------------------------------
 // DROPDOWN LOAD

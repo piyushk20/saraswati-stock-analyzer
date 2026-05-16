@@ -203,8 +203,6 @@
         </div>
       </div>
 
-      <!-- Momentum Screener -->
-      <div class="market-tables-grid" style="margin-top:20px;">
         <div id="momentumBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
           <h2 class="card-title text-green">🚀 Screener: NSE Momentum (EMA20 | RSI>50 | MACD | Vol)</h2>
           <p class="ep-subtitle">Price > EMA(20) &nbsp;·&nbsp; RSI(14) > 50 &nbsp;·&nbsp; MACD Cross &nbsp;·&nbsp; Volume Surge</p>
@@ -223,6 +221,33 @@
               <tbody id="momentumScreenerBody">
                 <tr><td colspan="6" style="text-align:center;">
                   <div class="pulse-loader">Scanning NSE 500 for Momentum setups...</div>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Perfect Flag Screener -->
+      <div class="market-tables-grid" style="margin-top:20px;">
+        <div id="flagBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
+          <h2 class="card-title" style="color: #00e5ff;">🚩 Screener: Perfect Flag Pattern</h2>
+          <p class="ep-subtitle">Stage 2 Uptrend &nbsp;·&nbsp; Tight Pullback &nbsp;·&nbsp; Vol Contraction &nbsp;·&nbsp; High Score</p>
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="flagTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Price</th>
+                  <th>Score</th>
+                  <th>Pole Gain</th>
+                  <th>Flag Depth</th>
+                  <th>Rating</th>
+                </tr>
+              </thead>
+              <tbody id="flagScreenerBody">
+                <tr><td colspan="6" style="text-align:center;">
+                  <div class="pulse-loader">Scanning NSE 500 for Perfect Flag patterns...</div>
                 </td></tr>
               </tbody>
             </table>
