@@ -99,13 +99,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
-      const isNewSession = !sessionStorage.getItem('saraswati_initialized');
-      if (isNewSession) sessionStorage.setItem('saraswati_initialized', 'true');
+      const forceScan = urlParams.get('force') === 'true';
 
       // Critical data first
       await Promise.all([
-        loadScreenerData(currentMomentumCategory, isNewSession).catch(e => console.error(e)),
-        loadMarketOverview(currentMomentumCategory, isNewSession).catch(e => console.error(e))
+        loadScreenerData(currentMomentumCategory, forceScan).catch(e => console.error(e)),
+        loadMarketOverview(currentMomentumCategory, forceScan).catch(e => console.error(e))
       ]);
       
       const initialDashboard = document.getElementById("initialDashboard");
@@ -116,7 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
       hideOverlay("loadingOverlay");
       
       // Load screeners sequentially to prevent backend saturation and load within a fixed, efficient time
-      window.runScanners(isNewSession);
+      window.runScanners(forceScan);
     };
     initData();
   } else {
