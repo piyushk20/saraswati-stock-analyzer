@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────
 FLAG_CONFIG = {
-    "MAX_WORKERS": 50,
+    "MAX_WORKERS": 15,
     "DATA_PERIOD": "2y",
     "SYMBOL_CAP": 500,
     "MIN_PRICE": 20.0,
@@ -164,10 +164,12 @@ def score_volume_contraction(df: pd.DataFrame, pole_end: int) -> tuple[bool, flo
 def _fetch_and_analyze(symbol: str) -> dict | None:
     ticker = symbol if symbol.endswith(".NS") else symbol + ".NS"
     try:
-        df = yf.download(ticker, period=FLAG_CONFIG["DATA_PERIOD"], interval="1d", progress=False, auto_adjust=True)
+        t = yf.Ticker(ticker)
+        df = t.history(period=FLAG_CONFIG["DATA_PERIOD"], interval="1d", auto_adjust=True, timeout=10)
         if df is None or len(df) < 200: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         df.columns = [c.lower() for c in df.columns]
+        df = df.dropna(subset=["close", "volume", "high", "low"])
+        if len(df) < 200: return None
         
         c = df["close"]
         df["ema20"], df["ema50"], df["sma150"], df["sma200"] = ema(c, 20), ema(c, 50), sma(c, 150), sma(c, 200)

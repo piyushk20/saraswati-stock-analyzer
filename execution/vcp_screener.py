@@ -13,7 +13,7 @@ logger = logging.getLogger("vcp_screener")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 VCP_CONFIG = {
-    "MAX_WORKERS": 50,
+    "MAX_WORKERS": 15,
     "DATA_PERIOD": "2y",
     "SYMBOL_CAP":  500,
 }
@@ -67,7 +67,7 @@ def filter_by_vcp_conditions(df):
     # Condition 8: Consolidation / Tightness (VCP Handle)
     # Check if max contraction in last 10-40 days is < 10%
     contraction = (df['Close'].rolling(window=20).max() - df['Close'].rolling(window=20).min()) / df['Close'].rolling(window=20).min()
-    c8 = contraction < 0.12 # Slightly relaxed for broader discovery
+    c8 = contraction <= 0.10 # Strict Minervini handle contraction <= 10%
     
     df['Has_fulfilled'] = c1 & c2 & c3 & c4 & c5 & c6 & c7 & c8
 
@@ -75,6 +75,16 @@ def filter_by_vcp_conditions(df):
 
 def get_nse_500_symbols():
     """Fetch Nifty 500 symbols from NSE or local fallback."""
+    # NSE online CSV sometimes contains test/dummy symbols — filter them out
+    _BLACKLIST = {"DUMMYVEDL1", "DUMMYVEDL2", "DUMMYVEDL3", "DUMMYVEDL4"}
+
+    def _clean(symbols_raw):
+        return [
+            f"{s.strip()}.NS"
+            for s in symbols_raw
+            if s and s.strip() and s.strip().upper() not in _BLACKLIST
+        ]
+
     url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -83,7 +93,7 @@ def get_nse_500_symbols():
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             df = pd.read_csv(StringIO(res.text))
-            return [f"{s.strip()}.NS" for s in df['Symbol'].tolist() if s]
+            return _clean(df['Symbol'].tolist())
     except:
         pass
     
@@ -92,7 +102,7 @@ def get_nse_500_symbols():
         local_path = os.path.join(os.path.dirname(__file__), "..", "ind_nifty500list.csv")
         if os.path.exists(local_path):
             df = pd.read_csv(local_path)
-            return [f"{s.strip()}.NS" for s in df['Symbol'].tolist() if s]
+            return _clean(df['Symbol'].tolist())
     except:
         pass
         

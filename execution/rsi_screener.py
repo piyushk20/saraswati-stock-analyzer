@@ -26,13 +26,13 @@ warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 RSI_CONFIG = {
-    "MONTHLY_MIN": 60.0,
-    "WEEKLY_MIN":  60.0,
-    "DAILY_MIN":   55.0,
-    "DAILY_MAX":   65.0,
+    "MONTHLY_MIN": 60.0,   # strict monthly momentum
+    "WEEKLY_MIN":  60.0,   # strict weekly momentum
+    "DAILY_MIN":   55.0,   # daily in consolidation/breakout range
+    "DAILY_MAX":   65.0,   # daily upper boundary
     "MIN_PRICE":   20.0,
-    "MAX_WORKERS": 50,
-    "DATA_PERIOD": "1y",
+    "MAX_WORKERS": 15,
+    "DATA_PERIOD": "2y",   # bumped from 1y to ensure enough monthly bars (need 15+)
     "SYMBOL_CAP":  500,
 }
 
@@ -89,7 +89,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
             return None
 
         # 2. Weekly RSI
-        w_close = close.resample("W-FRI").last()
+        w_close = close.resample("W-FRI").last().dropna()
         if len(w_close) < 15:
             return None
         rsi_weekly = _calc_rsi(w_close, 14)
@@ -97,8 +97,11 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
         if w_rsi is None or w_rsi <= RSI_CONFIG["WEEKLY_MIN"]:
             return None
 
-        # 3. Monthly RSI
-        m_close = close.resample("ME").last()
+        # 3. Monthly RSI — try ME (newer pandas), fall back to M
+        try:
+            m_close = close.resample("ME").last().dropna()
+        except Exception:
+            m_close = close.resample("M").last().dropna()
         if len(m_close) < 15:
             return None
         rsi_monthly = _calc_rsi(m_close, 14)
@@ -140,8 +143,8 @@ def scan_rsi(cap: int = None) -> dict:
             if result is not None:
                 candidates.append(result)
 
-    # Sort by symbol alphabetically or by daily RSI
-    candidates.sort(key=lambda x: x["display_symbol"])
+    # Sort by weekly RSI descending
+    candidates.sort(key=lambda x: x["weekly_rsi"], reverse=True)
 
     logger.info("RSI Scan complete: %d candidates found.", len(candidates))
 

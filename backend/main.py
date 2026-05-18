@@ -265,7 +265,7 @@ def analyze_stock(symbol: str, request: Request, period: str = "3mo", api_key: s
 VALID_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "nifty500"}
 
 @app.get("/api/screener/crossovers")
-def get_screener_crossovers(request: Request, category: str = "nifty50", api_key: str = Depends(verify_api_key)):
+def get_screener_crossovers(request: Request, category: str = "nifty50", force: bool = False, api_key: str = Depends(verify_api_key)):
     global screener_cache
     if category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
@@ -274,7 +274,7 @@ def get_screener_crossovers(request: Request, category: str = "nifty50", api_key
     check_rate_limit(client_ip)
     
     cache_entry = screener_cache.get(category)
-    if cache_entry and datetime.now() < cache_entry["expires_at"]:
+    if not force and cache_entry and datetime.now() < cache_entry["expires_at"]:
         return cache_entry["data"]
         
     try:
@@ -290,7 +290,7 @@ def get_screener_crossovers(request: Request, category: str = "nifty50", api_key
         raise HTTPException(status_code=500, detail="Failed to run screener scan.")
 
 @app.get("/api/market/overview")
-def get_market_overview(request: Request, category: str = "nifty50", api_key: str = Depends(verify_api_key)):
+def get_market_overview(request: Request, category: str = "nifty50", force: bool = False, api_key: str = Depends(verify_api_key)):
     global market_overview_cache
     if category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
@@ -299,7 +299,7 @@ def get_market_overview(request: Request, category: str = "nifty50", api_key: st
     check_rate_limit(client_ip)
     
     cache_entry = market_overview_cache.get(category)
-    if cache_entry and datetime.now() < cache_entry["expires_at"]:
+    if not force and cache_entry and datetime.now() < cache_entry["expires_at"]:
         return cache_entry["data"]
         
     try:
@@ -326,12 +326,12 @@ momentum_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes
 flag_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 
 @app.get("/api/screener/vcp")
-def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_vcp_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
     global vcp_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     
-    if datetime.now() < vcp_cache["expires_at"] and vcp_cache["data"] is not None:
+    if not force and datetime.now() < vcp_cache["expires_at"] and vcp_cache["data"] is not None:
         return vcp_cache["data"]
         
     try:
@@ -349,12 +349,12 @@ def get_vcp_screener(request: Request, api_key: str = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail="Failed to run VCP screener scan.")
 
 @app.get("/api/screener/ep")
-def get_ep_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_ep_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
     global ep_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if datetime.now() < ep_cache["expires_at"] and ep_cache["data"] is not None:
+    if not force and datetime.now() < ep_cache["expires_at"] and ep_cache["data"] is not None:
         return ep_cache["data"]
 
     try:
@@ -373,12 +373,12 @@ def get_ep_screener(request: Request, api_key: str = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail="Failed to run EP screener scan.")
 
 @app.get("/api/screener/rsi")
-def get_rsi_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_rsi_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
     global rsi_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if datetime.now() < rsi_cache["expires_at"] and rsi_cache["data"] is not None:
+    if not force and datetime.now() < rsi_cache["expires_at"] and rsi_cache["data"] is not None:
         return rsi_cache["data"]
 
     try:
@@ -397,12 +397,12 @@ def get_rsi_screener(request: Request, api_key: str = Depends(verify_api_key)):
         raise HTTPException(status_code=500, detail="Failed to run RSI screener scan.")
 
 @app.get("/api/screener/momentum")
-def get_momentum_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_momentum_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
     global momentum_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if datetime.now() < momentum_cache["expires_at"] and momentum_cache["data"] is not None:
+    if not force and datetime.now() < momentum_cache["expires_at"] and momentum_cache["data"] is not None:
         return momentum_cache["data"]
 
     try:
@@ -420,12 +420,12 @@ def get_momentum_screener(request: Request, api_key: str = Depends(verify_api_ke
         logger.error("Failed to execute Momentum screener scan: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to run Momentum screener scan.")
 @app.get("/api/screener/flag")
-def get_flag_screener(request: Request, api_key: str = Depends(verify_api_key)):
+def get_flag_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
     global flag_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if datetime.now() < flag_cache["expires_at"] and flag_cache["data"] is not None:
+    if not force and datetime.now() < flag_cache["expires_at"] and flag_cache["data"] is not None:
         return flag_cache["data"]
 
     try:

@@ -5,8 +5,8 @@ Episodic Pivot (EP) Screener for NSE/BSE markets.
 Adapted from Qullamaggie / Stockbee EP methodology.
 
 Strategy Logic:
-  - Gap up >= 8% from previous close (catalyst/result day)
-  - Relative volume >= 2.5x 20-day average
+  - Gap up >= 6.5% from previous close (catalyst/result day)
+  - Relative volume >= 2.0x 20-day average
   - Price >= 150-day SMA (Stage 2 uptrend)
   - Price >= 50-day SMA (intermediate trend)
   - 52-week high proximity >= 70%
@@ -30,13 +30,13 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────
 EP_CONFIG = {
-    "GAP_MIN_PCT":       4.0,    # Minimum gap-up % required (relaxed for broader discovery)
-    "RVOL_MIN":          1.5,    # Relative volume vs 20-day avg
+    "GAP_MIN_PCT":       6.5,    # Strict minimum gap-up % required
+    "RVOL_MIN":          2.0,    # Strict relative volume vs 20-day avg
     "SMA150_FILTER":     True,   # Price must be above 150 SMA
     "SMA50_FILTER":      True,   # Price must be above 50 SMA
     "HIGH52W_PROXIMITY": 0.70,   # Price >= 70% of 52-week high
     "MIN_PRICE":         20.0,   # Minimum stock price (₹)
-    "MAX_WORKERS":       50,     # Parallel threads
+    "MAX_WORKERS":       15,     # Parallel threads
     "DATA_PERIOD":       "2y",   # yfinance history period
     "SYMBOL_CAP":        500,    # Max symbols to scan
     "LOOKBACK_DAYS":     5,      # Days back to detect EP burst (1=today, 2=incl yesterday, etc)
@@ -210,12 +210,12 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
         rvol    = burst_data["rvol"]
 
         # Gap contribution (max 35 pts)
-        if gap_pct >= 8:
-            score += min(35.0, 20.0 + (gap_pct - 8.0) * 1.5)
+        if gap_pct >= EP_CONFIG["GAP_MIN_PCT"]:
+            score += min(35.0, 10.0 + (gap_pct - EP_CONFIG["GAP_MIN_PCT"]) * 2.0)
 
         # Relative volume (max 30 pts)
-        if rvol >= 2.5:
-            score += min(30.0, 15.0 + (rvol - 2.5) * 5.0)
+        if rvol >= EP_CONFIG["RVOL_MIN"]:
+            score += min(30.0, 10.0 + (rvol - EP_CONFIG["RVOL_MIN"]) * 5.0)
 
         # Trend filters (max 20 pts)
         if above_sma150: score += 8

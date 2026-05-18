@@ -1,5 +1,14 @@
 // app.js
-console.log("🚀 APP.JS LOADED v5! 🚀");
+console.log("🚀 APP.JS LOADED v6! 🚀");
+
+// Fetch with timeout — prevents scanner requests from hanging indefinitely
+const SCANNER_TIMEOUT_MS = 45000; // 45s per scanner request
+function fetchWithTimeout(url, options = {}, timeoutMs = SCANNER_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
 
@@ -31,6 +40,29 @@ window.changeMomentumCategory = function(cat) {
   // Reload data
   loadMarketOverview(cat);
   loadScreenerData(cat);
+};
+
+window.runScanners = async function(isNewSession) {
+  const TOTAL_SCANNER_BUDGET_MS = 120000; // 120s total budget for all scanners
+  const scanStart = performance.now();
+  const scanners = [
+    ['VCP',      () => loadVcpScreenerData(isNewSession)],
+    ['EP',       () => loadEpScreenerData(isNewSession)],
+    ['RSI',      () => loadRsiScreenerData(isNewSession)],
+    ['Momentum', () => loadMomentumScreenerData(isNewSession)],
+    ['Flag',     () => loadFlagScreenerData(isNewSession)],
+  ];
+  for (const [name, fn] of scanners) {
+    const elapsed = performance.now() - scanStart;
+    if (elapsed > TOTAL_SCANNER_BUDGET_MS) {
+      console.warn(`⏱️ Scanner budget exhausted after ${(elapsed/1000).toFixed(1)}s — skipping remaining scanners`);
+      break;
+    }
+    const t0 = performance.now();
+    await fn().catch(e => console.error(`${name} scan error:`, e));
+    console.log(`✅ ${name} scanner loaded in ${((performance.now()-t0)/1000).toFixed(1)}s`);
+  }
+  console.log(`🏁 All scanners completed in ${((performance.now()-scanStart)/1000).toFixed(1)}s`);
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -67,10 +99,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
-      // Fire and forget - do not await these so the UI comes up instantly
-      // The individual render methods handle populating the DOM when ready
-      loadScreenerData(currentMomentumCategory).catch(e => console.error(e));
-      loadMarketOverview(currentMomentumCategory).catch(e => console.error(e));
+      const isNewSession = !sessionStorage.getItem('saraswati_initialized');
+      if (isNewSession) sessionStorage.setItem('saraswati_initialized', 'true');
+
+      // Critical data first
+      await Promise.all([
+        loadScreenerData(currentMomentumCategory, isNewSession).catch(e => console.error(e)),
+        loadMarketOverview(currentMomentumCategory, isNewSession).catch(e => console.error(e))
+      ]);
       
       const initialDashboard = document.getElementById("initialDashboard");
       const stockSelector = document.getElementById("stockSelector");
@@ -79,12 +115,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       hideOverlay("loadingOverlay");
       
-      // Load screeners as fire-and-forget so they scan in parallel without blocking UI
-      loadVcpScreenerData().catch(e => console.error('VCP scan error:', e));
-      loadEpScreenerData().catch(e => console.error('EP scan error:', e));
-      loadRsiScreenerData().catch(e => console.error('RSI scan error:', e));
-      loadMomentumScreenerData().catch(e => console.error('Momentum scan error:', e));
-      loadFlagScreenerData().catch(e => console.error('Flag scan error:', e));
+      // Load screeners sequentially to prevent backend saturation and load within a fixed, efficient time
+      window.runScanners(isNewSession);
     };
     initData();
   } else {
@@ -172,6 +204,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
          loadScreenerData(currentMomentumCategory);
          loadMarketOverview(currentMomentumCategory);
+      }
+      const vcpBody = document.getElementById("vcpScreenerBody");
+      if (vcpBody && vcpBody.innerHTML.includes("Scanning")) {
+         window.runScanners(false);
       }
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -298,14 +334,15 @@ window.changeMomentumCategory = function(category) {
   loadMarketOverview(category);
 };
 
-async function loadScreenerData(category = 'nifty50') {
+async function loadScreenerData(category = 'nifty50', force = false) {
   const tableBody = document.getElementById("screenerTableBody");
   const screenerBox = document.getElementById("screenerBox");
   
   if (!tableBody || !screenerBox) return;
   
   try {
-    const fetchUrl = `${window.API_BASE}/api/screener/crossovers?category=${category}&v=${new Date().getTime()}`;
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/crossovers?category=${category}&v=${new Date().getTime()}${forceParam}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
@@ -370,7 +407,7 @@ async function loadScreenerData(category = 'nifty50') {
 // -----------------------------------------------------------------
 // VCP SCREENER
 // -----------------------------------------------------------------
-async function loadVcpScreenerData() {
+async function loadVcpScreenerData(force = false) {
   const vcpBody = document.getElementById("vcpScreenerBody");
   if (!vcpBody) return;
   
@@ -378,9 +415,10 @@ async function loadVcpScreenerData() {
   
   try {
     console.log("📡 Fetching VCP Screener data...");
-    const fetchUrl = `${window.API_BASE}/api/screener/vcp?v=${new Date().getTime()}`;
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/vcp?v=${new Date().getTime()}${forceParam}`;
 
-    const resp = await fetch(fetchUrl, {
+    const resp = await fetchWithTimeout(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
@@ -426,7 +464,7 @@ async function loadVcpScreenerData() {
 // -----------------------------------------------------------------
 // EP (EPISODIC PIVOT) SCREENER
 // -----------------------------------------------------------------
-async function loadEpScreenerData() {
+async function loadEpScreenerData(force = false) {
   const epBody = document.getElementById("epScreenerBody");
   if (!epBody) return;
 
@@ -434,8 +472,9 @@ async function loadEpScreenerData() {
 
   try {
     console.log("📡 Fetching EP Screener data...");
-    const fetchUrl = `${window.API_BASE}/api/screener/ep?v=${new Date().getTime()}`;
-    const resp = await fetch(fetchUrl, {
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/ep?v=${new Date().getTime()}${forceParam}`;
+    const resp = await fetchWithTimeout(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
@@ -502,7 +541,7 @@ async function loadEpScreenerData() {
 
 // MULTI-TIMEFRAME RSI SCREENER
 // -----------------------------------------------------------------
-async function loadRsiScreenerData() {
+async function loadRsiScreenerData(force = false) {
   const rsiBody = document.getElementById("rsiScreenerBody");
   if (!rsiBody) return;
 
@@ -510,8 +549,9 @@ async function loadRsiScreenerData() {
 
   try {
     console.log("📡 Fetching RSI Screener data...");
-    const fetchUrl = `${window.API_BASE}/api/screener/rsi?v=${new Date().getTime()}`;
-    const resp = await fetch(fetchUrl, {
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/rsi?v=${new Date().getTime()}${forceParam}`;
+    const resp = await fetchWithTimeout(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
@@ -570,7 +610,7 @@ async function loadRsiScreenerData() {
 // -----------------------------------------------------------------
 // MOMENTUM SCREENER
 // -----------------------------------------------------------------
-async function loadMomentumScreenerData() {
+async function loadMomentumScreenerData(force = false) {
   const momentumBody = document.getElementById("momentumScreenerBody");
   if (!momentumBody) return;
 
@@ -578,8 +618,9 @@ async function loadMomentumScreenerData() {
 
   try {
     console.log("📡 Fetching Momentum Screener data...");
-    const fetchUrl = `${window.API_BASE}/api/screener/momentum?v=${new Date().getTime()}`;
-    const resp = await fetch(fetchUrl, {
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/momentum?v=${new Date().getTime()}${forceParam}`;
+    const resp = await fetchWithTimeout(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
@@ -643,7 +684,7 @@ async function loadMomentumScreenerData() {
 // -----------------------------------------------------------------
 // PERFECT FLAG SCREENER
 // -----------------------------------------------------------------
-async function loadFlagScreenerData() {
+async function loadFlagScreenerData(force = false) {
   const flagBody = document.getElementById("flagScreenerBody");
   if (!flagBody) return;
 
@@ -651,8 +692,9 @@ async function loadFlagScreenerData() {
 
   try {
     console.log("📡 Fetching Flag Screener data...");
-    const fetchUrl = `${window.API_BASE}/api/screener/flag?v=${new Date().getTime()}`;
-    const resp = await fetch(fetchUrl, {
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/flag?v=${new Date().getTime()}${forceParam}`;
+    const resp = await fetchWithTimeout(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
       cache: "no-store"
     });
@@ -751,9 +793,10 @@ async function loadNse500Stocks() {
   }
 }
 
-async function loadMarketOverview(category = 'nifty50') {
+async function loadMarketOverview(category = 'nifty50', force = false) {
   try {
-    const fetchUrl = `${window.API_BASE}/api/market/overview?category=${category}&v=${new Date().getTime()}`;
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/market/overview?category=${category}&v=${new Date().getTime()}${forceParam}`;
 
     const resp = await fetch(fetchUrl, {
       headers: { "X-API-Key": window.CONFIG.API_KEY },
