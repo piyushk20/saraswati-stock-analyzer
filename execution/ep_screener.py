@@ -25,6 +25,17 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
+
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
@@ -38,7 +49,7 @@ EP_CONFIG = {
     "MIN_PRICE":         20.0,   # Minimum stock price (₹)
     "MAX_WORKERS":       15,     # Parallel threads
     "DATA_PERIOD":       "2y",   # yfinance history period
-    "SYMBOL_CAP":        500,    # Max symbols to scan
+    "SYMBOL_CAP":        800,    # Max symbols to scan
     "LOOKBACK_DAYS":     5,      # Days back to detect EP burst (1=today, 2=incl yesterday, etc)
 }
 
@@ -79,7 +90,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
     ticker = symbol if symbol.endswith((".NS", ".BO")) else symbol + ".NS"
 
     try:
-        t = yf.Ticker(ticker)
+        t = get_ticker(ticker)
         df = t.history(
             period=EP_CONFIG["DATA_PERIOD"],
             interval="1d",
@@ -263,10 +274,10 @@ def scan_ep(cap: int = None) -> dict:
     """
     try:
         # Import the shared symbol list from vcp_screener (no duplication)
-        from execution.vcp_screener import get_nse_500_symbols
-        symbols_raw = get_nse_500_symbols()
+        from execution.vcp_screener import get_all_symbols
+        symbols_raw = get_all_symbols()
     except Exception as e:
-        logger.error("Could not load NSE 500 symbols: %s", e)
+        logger.error("Could not load symbols: %s", e)
         return {"error": f"Could not load symbol list: {e}"}
 
     cap = cap or EP_CONFIG["SYMBOL_CAP"]

@@ -29,7 +29,7 @@ def start_backend():
     log_file = open(os.path.join(os.getcwd(), "backend.log"), "w")
     flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008 if sys.platform == 'win32' else 0
     return subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", str(backend_port), "--reload"],
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", str(backend_port)],
         cwd=backend_dir,
         stdout=log_file,
         stderr=subprocess.STDOUT,
@@ -53,7 +53,6 @@ def start_frontend():
     )
 
 if __name__ == "__main__":
-    kill_process_on_port(8000)
     kill_process_on_port(8001)
     kill_process_on_port(8081)
     

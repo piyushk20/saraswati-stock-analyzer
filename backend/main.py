@@ -91,7 +91,20 @@ app = FastAPI(title="Indian Stock Analyzer API", version="1.1.0")
 # Restricted to local development origins only
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://localhost:8082",
+        "http://127.0.0.1:8082",
+        "http://localhost:8085",
+        "http://127.0.0.1:8085",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+        "http://localhost:8002",
+        "http://127.0.0.1:8002",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -255,14 +268,22 @@ def analyze_stock(symbol: str, request: Request, period: str = "3mo", api_key: s
         analysis_cache[cache_key] = (data, datetime.now())
         return data
 
-
     except HTTPException:
         raise
     except Exception as e:
+        err_str = str(e)
+        # Detect Yahoo Finance rate-limit errors and return 429 (not 500/404)
+        if "Too Many Requests" in err_str or "429" in err_str or "rate limit" in err_str.lower() or "YFRateLimitError" in type(e).__name__:
+            logger.warning(f"Yahoo Finance rate limit hit for {symbol}: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="Yahoo Finance rate limit reached. Please wait a moment and try again."
+            )
         logger.error("Failed to execute analysis for symbol=%s: %s", symbol, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error.")
 
-VALID_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "nifty500"}
+
+VALID_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "midcap150", "smallcap250", "microcap250", "nifty500"}
 
 @app.get("/api/screener/crossovers")
 def get_screener_crossovers(request: Request, category: str = "nifty50", force: bool = False, api_key: str = Depends(verify_api_key)):
@@ -320,10 +341,13 @@ def get_market_overview(request: Request, category: str = "nifty50", force: bool
         raise HTTPException(status_code=500, detail="Failed to fetch market overview.")
 
 vcp_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
+evcp_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 ep_cache  = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 rsi_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 momentum_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
 flag_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
+# History of last 5 flag screener results
+flag_history = collections.deque(maxlen=5)
 
 @app.get("/api/screener/vcp")
 def get_vcp_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
@@ -438,22 +462,42 @@ def get_flag_screener(request: Request, force: bool = False, api_key: str = Depe
         data = clean_types(data)
         flag_cache["data"] = data
         flag_cache["expires_at"] = datetime.now() + timedelta(hours=1)
+        # Record in history
+        flag_history.append(data)
         return data
     except Exception as e:
         logger.error("Failed to execute Flag screener scan: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to run Flag screener scan.")
 
+@app.get("/api/screener/flag/last5")
+def get_flag_last5():
+    return list(flag_history)
 
 @app.get("/api/market/nse500")
 def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     try:
-        from execution.vcp_screener import get_nse_500_symbols
-        return {"symbols": get_nse_500_symbols()}
+        from execution.vcp_screener import (
+            get_nse_500_symbols,
+            get_midcap_150_symbols,
+            get_smallcap_250_symbols,
+            get_microcap_250_symbols
+        )
+        symbols = set(get_nse_500_symbols())
+        symbols.update(get_midcap_150_symbols())
+        symbols.update(get_smallcap_250_symbols())
+        symbols.update(get_microcap_250_symbols())
+        
+        sorted_symbols = sorted(list(symbols))
+        return {"symbols": sorted_symbols}
     except Exception as e:
-        logger.error("Failed to fetch NSE 500 list: %s", e, exc_info=True)
-        return {"symbols": ["RELIANCE.NS", "TCS.NS"]}
+        logger.error("Failed to fetch all stock symbols: %s", e, exc_info=True)
+        try:
+            from execution.vcp_screener import get_nse_500_symbols
+            return {"symbols": get_nse_500_symbols()}
+        except Exception:
+            return {"symbols": ["RELIANCE.NS", "TCS.NS"]}
 
 @app.get("/health")
 async def health():

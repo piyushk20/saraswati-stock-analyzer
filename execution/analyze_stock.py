@@ -14,19 +14,37 @@ from ta.trend import MACD, ADXIndicator, CCIIndicator, IchimokuIndicator
 from ta.volatility import BollingerBands, AverageTrueRange, KeltnerChannel
 from ta.volume import VolumeWeightedAveragePrice, MFIIndicator
 
+# Import custom yfinance helper with robust rate-limit handling
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe, get_quote_summary_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe, get_quote_summary_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
+        def get_quote_summary_safe(symbol):
+            return getattr(yf.Ticker(symbol), 'info', {}) or {}
+
 
 def get_historical_data(symbol, period="5y"):
     """
-    Fetch historical data using yfinance.
+    Fetch historical data using safe yfinance helper.
+    Rate-limit exceptions are re-raised so callers can return HTTP 429.
     """
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period)
+        df = get_historical_data_safe(symbol, period=period)
         if df is not None and not df.empty:
             return df
     except Exception as e:
+        err_msg = str(e)
+        # Propagate rate-limit errors so callers can return 429 instead of 404
+        if "Too Many Requests" in err_msg or "429" in err_msg or "rate limit" in err_msg.lower() or "YFRateLimitError" in type(e).__name__:
+            raise
         logger.error(f"❌ yfinance fetch failed for {symbol}: {e}")
-        
+
     return None
 
 # Add the project root to sys.path to find our modules
@@ -183,8 +201,8 @@ def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
             now - _BENCHMARK_CACHE["timestamp"] > timedelta(hours=1)):
             
             logger.info("📡 Fetching Nifty 50 benchmark data for RS calculation...")
-            nifty = yf.Ticker("^NSEI").history(period="2y") # 2y to ensure enough 1y growth data
-            if not nifty.empty:
+            nifty = get_historical_data_safe("^NSEI", period="2y") # 2y to ensure enough 1y growth data
+            if nifty is not None and not nifty.empty:
                 _BENCHMARK_CACHE["data"] = nifty
                 _BENCHMARK_CACHE["timestamp"] = now
         
@@ -391,11 +409,20 @@ def analyze(symbol, chart_period="3mo"):
             return {"error": f"No data found for {symbol}", "symbol": symbol}
         
         # Create yfinance Ticker object for info, even if historical data came from nsefin
-        ticker = yf.Ticker(symbol)
+        ticker = get_ticker(symbol)
             
         df = df_full.tail(252)
         
-        info = getattr(ticker, "info", {})
+        # Fetch fundamentals via direct API (curl_cffi, bypasses crumb rate limit)
+        info = get_quote_summary_safe(symbol)
+        if not info:
+            # Graceful fallback to legacy ticker.info if direct API fails
+            try:
+                info = getattr(ticker, "info", {}) or {}
+            except Exception as ie:
+                logger.warning(f"⚠️ Failed to fetch ticker info for {symbol}: {ie}. Continuing with technical analysis only.")
+                info = {}
+            
         is_index = symbol.startswith("^") or (info.get("quoteType") == "INDEX")
         
         current_price = df['Close'].iloc[-1]

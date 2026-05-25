@@ -12,6 +12,16 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +44,9 @@ UNIVERSE = {
     "nifty200": [],  # filled dynamically via get_nse_500_symbols slice
     "midcap100": [],
     "smallcap100": [],
+    "midcap150": [],
+    "smallcap250": [],
+    "microcap250": [],
     "nifty500": [],
 }
 
@@ -42,7 +55,7 @@ def _fetch_crossover(symbol: str, lookback: int) -> dict | None:
     ticker = symbol if symbol.endswith(".NS") else symbol + ".NS"
     try:
         # Use Ticker.history() — avoids the MultiIndex column bug from yf.download()
-        t = yf.Ticker(ticker)
+        t = get_ticker(ticker)
         df = t.history(period=SCREENER_CONFIG["DATA_PERIOD"], interval="1d", auto_adjust=True)
         if df is None or len(df) < 210:
             return None
@@ -104,16 +117,29 @@ def find_crossovers(category: str = "nifty50") -> dict:
     # For dynamic categories, fall back to nifty50 list if empty
     if not symbols:
         try:
-            from execution.vcp_screener import get_nse_500_symbols
-            all_syms = get_nse_500_symbols()
+            from execution.vcp_screener import (
+                get_nse_500_symbols,
+                get_midcap_150_symbols,
+                get_smallcap_250_symbols,
+                get_microcap_250_symbols
+            )
             if category == "nifty200":
+                all_syms = get_nse_500_symbols()
                 symbols = all_syms[:200]
+            elif category == "midcap150":
+                symbols = get_midcap_150_symbols()
+            elif category == "smallcap250":
+                symbols = get_smallcap_250_symbols()
+            elif category == "microcap250":
+                symbols = get_microcap_250_symbols()
             elif category == "midcap100":
-                symbols = all_syms[50:150]
+                symbols = get_midcap_150_symbols()[:100]
             elif category == "smallcap100":
-                symbols = all_syms[200:300]
+                symbols = get_smallcap_250_symbols()[:100]
+            elif category == "nifty500":
+                symbols = get_nse_500_symbols()
             else:
-                symbols = all_syms[:500]
+                symbols = get_nse_500_symbols()
         except Exception:
             symbols = UNIVERSE["nifty50"]
 

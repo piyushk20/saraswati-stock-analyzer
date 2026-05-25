@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saraswati — Indian Market Intelligence</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8001 http://127.0.0.1:8001 http://localhost:8002 http://127.0.0.1:8002 http://localhost:8081 http://127.0.0.1:8081 http://localhost:8082 http://127.0.0.1:8082;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8001 http://127.0.0.1:8001 http://localhost:8002 http://127.0.0.1:8002 http://localhost:8005 http://127.0.0.1:8005 http://localhost:8081 http://127.0.0.1:8081 http://localhost:8082 http://127.0.0.1:8082 http://localhost:8085 http://127.0.0.1:8085;">
   
   <!-- Premium Web Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,7 +36,7 @@
   <div class="app-container">
     
     <header>
-      <div class="brand-title">Saraswati Intelligence</div>
+      <div class="brand-title"><img src="assets/logo.png" class="logo" alt="Logo"> Saraswati Intelligence</div>
       <div class="controls">
         <div class="search-wrapper">
           <input type="text" id="stockSearch" class="glass-input" placeholder="Quick Search (e.g. RELIANCE)..." autocomplete="off">
@@ -71,8 +71,10 @@
           <div class="category-btn-group">
             <button class="cat-btn active" onclick="changeMomentumCategory('nifty50')">Nifty 50</button>
             <button class="cat-btn" onclick="changeMomentumCategory('nifty200')">Nifty 200</button>
-            <button class="cat-btn" onclick="changeMomentumCategory('midcap100')">Midcap 100</button>
-            <button class="cat-btn" onclick="changeMomentumCategory('smallcap100')">Smallcap 100</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('nifty500')">Nifty 500</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('midcap150')">Midcap 150</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('smallcap250')">Smallcap 250</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('microcap250')">Microcap 250</button>
           </div>
         </div>
       </div>
@@ -176,7 +178,6 @@
           </div>
         </div>
       </div>
-    </div>
       <!-- Multi-Timeframe RSI Screener -->
       <div class="market-tables-grid" style="margin-top:20px;">
         <div id="rsiScreenerBox" class="glass-panel dynamic-card screener-full-width" style="display:flex; flex-direction:column;">
@@ -226,7 +227,6 @@
             </table>
           </div>
         </div>
-      </div>
 
       <!-- Perfect Flag Screener -->
       <div class="market-tables-grid" style="margin-top:20px;">
@@ -461,7 +461,7 @@
   </div>
 
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
 

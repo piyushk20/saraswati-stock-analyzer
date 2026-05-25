@@ -96,3 +96,16 @@ Thumbs.db
 !vercel.json
 !package.json
 !tsconfig.json
+
+# Virtual Environment
+.venv/
+.venv_failed_3_14/
+
+# Databases
+*.db
+investorsway.db
+
+# Agent files & scratch directories
+.agents/
+.opencode/
+scratch/

@@ -12,7 +12,19 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+from typing import List
+import pandas as pd
 import yfinance as yf
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
@@ -21,7 +33,7 @@ logger = logging.getLogger(__name__)
 FLAG_CONFIG = {
     "MAX_WORKERS": 15,
     "DATA_PERIOD": "2y",
-    "SYMBOL_CAP": 500,
+    "SYMBOL_CAP": 800,
     "MIN_PRICE": 20.0,
     "MIN_SCORE": 40.0,
 }
@@ -164,9 +176,9 @@ def score_volume_contraction(df: pd.DataFrame, pole_end: int) -> tuple[bool, flo
 def _fetch_and_analyze(symbol: str) -> dict | None:
     ticker = symbol if symbol.endswith(".NS") else symbol + ".NS"
     try:
-        t = yf.Ticker(ticker)
+        t = get_ticker(ticker)
         df = t.history(period=FLAG_CONFIG["DATA_PERIOD"], interval="1d", auto_adjust=True, timeout=10)
-        if df is None or len(df) < 200: return None
+        if df is None or len(df) < 100: return None
         df.columns = [c.lower() for c in df.columns]
         df = df.dropna(subset=["close", "volume", "high", "low"])
         if len(df) < 200: return None
@@ -195,7 +207,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
         composite = (s2_score*WEIGHTS["stage2"] + pole_score*WEIGHTS["flagpole"] + pull_score*WEIGHTS["pullback"] + 
                      dep_score*WEIGHTS["depth"] + con_score*WEIGHTS["constructive"] + young_score*WEIGHTS["young"] + vol_score*WEIGHTS["volume"])
         
-        if composite < FLAG_CONFIG["MIN_SCORE"]: return None
+        if composite < 20.0: return None
 
         return {
             "symbol": symbol.replace(".NS", ""),
@@ -208,17 +220,27 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
     except: return None
 
 def scan_flag():
-    from execution.vcp_screener import get_nse_500_symbols
-    symbols = get_nse_500_symbols()[:FLAG_CONFIG["SYMBOL_CAP"]]
+    from execution.vcp_screener import get_all_symbols
+    symbols = get_all_symbols()[:FLAG_CONFIG["SYMBOL_CAP"]]
     logger.info(f"Scanning {len(symbols)} symbols for Perfect Flag...")
     candidates = []
     with ThreadPoolExecutor(max_workers=FLAG_CONFIG["MAX_WORKERS"]) as pool:
         futures = {pool.submit(_fetch_and_analyze, s): s for s in symbols}
         for fut in as_completed(futures):
             res = fut.result()
-            if res: candidates.append(res)
+            if res:
+                candidates.append(res)
+                logger.info(f"Flag passed: {res['symbol']} score={res['score']}")
     candidates.sort(key=lambda x: x["score"], reverse=True)
     return {"flag_stocks": candidates, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+def debug_scan(symbols: List[str]) -> List[dict]:
+    results = []
+    for s in symbols:
+        res = _fetch_and_analyze(s)
+        if res:
+            results.append(res)
+    return results
 
 if __name__ == "__main__":
     import json

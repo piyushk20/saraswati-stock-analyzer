@@ -2,7 +2,7 @@
 console.log("🚀 APP.JS LOADED v6! 🚀");
 
 // Fetch with timeout — prevents scanner requests from hanging indefinitely
-const SCANNER_TIMEOUT_MS = 45000; // 45s per scanner request
+const SCANNER_TIMEOUT_MS = 120000; // 120s per scanner request
 function fetchWithTimeout(url, options = {}, timeoutMs = SCANNER_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -10,11 +10,16 @@ function fetchWithTimeout(url, options = {}, timeoutMs = SCANNER_TIMEOUT_MS) {
     .finally(() => clearTimeout(timer));
 }
 
-const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:";
+const isLocal = window.location.hostname === "localhost" || 
+                window.location.hostname === "127.0.0.1" || 
+                window.location.protocol === "file:" ||
+                window.location.hostname.startsWith("192.168.") ||
+                window.location.hostname.startsWith("10.") ||
+                window.location.hostname === "";
 
 // Backend (uvicorn) always on 8001; static file server on 8081
 // window.API_BASE used by all fetch calls
-window.API_BASE = isLocal ? window.location.protocol + "//" + window.location.hostname + ":8001" : "";
+window.API_BASE = isLocal ? "http://127.0.0.1:8001" : "";
 
 let chartInstance = null;
 let activeApiPort = "8001"; // Legacy reference — use window.API_BASE instead
@@ -72,7 +77,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Stagger background fetches to avoid saturating backend/API
   const urlParams = new URLSearchParams(window.location.search);
   const skipScans = urlParams.get('noscan') === '1';
-  const lastStock = localStorage.getItem('lastStock');
+  const paramSymbol = urlParams.get('symbol');
+  const lastStock = paramSymbol || localStorage.getItem('lastStock');
   
   if (lastStock) {
      const select = document.getElementById("stockSelector");
@@ -289,6 +295,10 @@ async function loadStockDashboard(symbol, period = null) {
     let data;
     if (resp.ok) {
       data = await resp.json();
+    } else if (resp.status === 429) {
+      // Yahoo Finance rate limit — show friendly retry countdown
+      showRateLimitError(symbol);
+      return;
     } else {
       const errorText = await resp.text();
       throw new Error(`Error fetching data: ${resp.status} - ${errorText}`);
@@ -302,6 +312,42 @@ async function loadStockDashboard(symbol, period = null) {
   }
 }
 
+/**
+ * Shows a user-friendly rate limit error with auto-retry countdown.
+ */
+function showRateLimitError(symbol) {
+  hideOverlay("loadingOverlay");
+  const errorBox = document.getElementById("errorBox");
+  let seconds = 8;
+  
+  const update = () => {
+    errorBox.innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-size:1.5rem;margin-bottom:0.5rem;">⚡ Yahoo Finance Rate Limit</div>
+        <div style="color:var(--text-dim);margin-bottom:1rem;font-size:0.9rem;">
+          Too many requests were made during market scanning. Retrying <strong>${symbol}</strong> in ${seconds}s…
+        </div>
+        <button onclick="clearInterval(window._rlTimer);loadStockDashboard('${symbol}');"
+          style="padding:0.5rem 1.5rem;background:var(--accent-teal,#00e5ff);color:#000;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+          Retry Now
+        </button>
+      </div>`;
+  };
+  
+  update();
+  showOverlay("errorOverlay");
+  
+  window._rlTimer = setInterval(() => {
+    seconds--;
+    if (seconds <= 0) {
+      clearInterval(window._rlTimer);
+      hideOverlay("errorOverlay");
+      loadStockDashboard(symbol);
+    } else {
+      update();
+    }
+  }, 1000);
+}
 
 /**
  * GLOBAL: Change Momentum Category
@@ -636,8 +682,30 @@ async function loadMomentumScreenerData(force = false) {
         const histColor = stock.macd_hist >= 0 ? "text-green" : "text-red";
         const volColor = stock.vol_ratio >= 2.0 ? "text-green bold" : (stock.vol_ratio >= 1.5 ? "text-green" : "text-amber");
 
+        const sessionsList = stock.passed_sessions || ["Today"];
+        const sessionsHtml = sessionsList
+          .map(s => {
+            const cls = s === "Today" ? "passed-session-tag today" : "passed-session-tag";
+            return `<span class="${cls}">${sanitize(s)}</span>`;
+          })
+          .join("");
+
+        const newBadge = stock.is_new_addition 
+          ? `<span class="badge-new" style="margin-left:8px;">New</span>` 
+          : "";
+
         tr.innerHTML = `
-          <td><strong>${sanitize(stock.display_symbol || stock.symbol)}</strong></td>
+          <td>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <div style="display:flex; align-items:center;">
+                <strong>${sanitize(stock.display_symbol || stock.symbol)}</strong>
+                ${newBadge}
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:2px;">
+                ${sessionsHtml}
+              </div>
+            </div>
+          </td>
           <td style="font-family:var(--font-mono)">₹${sanitize(String(stock.close))}</td>
           <td class="text-green bold">+${sanitize(String(stock.pct_above_ema))}%</td>
           <td class="text-magenta">${sanitize(String(stock.rsi))}</td>

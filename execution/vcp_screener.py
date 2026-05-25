@@ -1,6 +1,16 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -15,7 +25,7 @@ logger = logging.getLogger("vcp_screener")
 VCP_CONFIG = {
     "MAX_WORKERS": 15,
     "DATA_PERIOD": "2y",
-    "SYMBOL_CAP":  500,
+    "SYMBOL_CAP":  800,
 }
 
 def cal_slope(arr):
@@ -74,7 +84,7 @@ def filter_by_vcp_conditions(df):
     return df[['Close', 'Has_fulfilled']]
 
 def get_nse_500_symbols():
-    """Fetch Nifty 500 symbols from NSE or local fallback."""
+    """Fetch Nifty 500 symbols from local file or NSE."""
     # NSE online CSV sometimes contains test/dummy symbols — filter them out
     _BLACKLIST = {"DUMMYVEDL1", "DUMMYVEDL2", "DUMMYVEDL3", "DUMMYVEDL4"}
 
@@ -84,6 +94,15 @@ def get_nse_500_symbols():
             for s in symbols_raw
             if s and s.strip() and s.strip().upper() not in _BLACKLIST
         ]
+
+    # Try local first
+    try:
+        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_nifty500list.csv")
+        if os.path.exists(local_path):
+            df = pd.read_csv(local_path)
+            return _clean(df['Symbol'].tolist())
+    except:
+        pass
 
     url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -96,22 +115,89 @@ def get_nse_500_symbols():
             return _clean(df['Symbol'].tolist())
     except:
         pass
-    
-    # Fallback to local
+        
+    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS"]
+
+def get_midcap_150_symbols():
+    """Fetch Nifty Midcap 150 symbols from local file."""
+    _BLACKLIST = {"DUMMYVEDL1", "DUMMYVEDL2", "DUMMYVEDL3", "DUMMYVEDL4"}
+
+    def _clean(symbols_raw):
+        return [
+            f"{s.strip()}.NS"
+            for s in symbols_raw
+            if s and s.strip() and s.strip().upper() not in _BLACKLIST
+        ]
+
     try:
-        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_nifty500list.csv")
+        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_niftymidcap150list.csv")
         if os.path.exists(local_path):
             df = pd.read_csv(local_path)
             return _clean(df['Symbol'].tolist())
     except:
         pass
-        
-    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS"]
+    return []
+
+def get_smallcap_250_symbols():
+    """Fetch Nifty Smallcap 250 symbols from local file."""
+    _BLACKLIST = {"DUMMYVEDL1", "DUMMYVEDL2", "DUMMYVEDL3", "DUMMYVEDL4"}
+
+    def _clean(symbols_raw):
+        return [
+            f"{s.strip()}.NS"
+            for s in symbols_raw
+            if s and s.strip() and s.strip().upper() not in _BLACKLIST
+        ]
+
+    try:
+        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_niftysmallcap250list.csv")
+        if os.path.exists(local_path):
+            df = pd.read_csv(local_path)
+            return _clean(df['Symbol'].tolist())
+    except:
+        pass
+    return []
+
+def get_microcap_250_symbols():
+    """Fetch Nifty Microcap 250 symbols from local file."""
+    _BLACKLIST = {"DUMMYVEDL1", "DUMMYVEDL2", "DUMMYVEDL3", "DUMMYVEDL4"}
+
+    def _clean(symbols_raw):
+        return [
+            f"{s.strip()}.NS"
+            for s in symbols_raw
+            if s and s.strip() and s.strip().upper() not in _BLACKLIST
+        ]
+
+    try:
+        local_path = os.path.join(os.path.dirname(__file__), "..", "ind_niftymicrocap250_list.csv")
+        if os.path.exists(local_path):
+            df = pd.read_csv(local_path)
+            return _clean(df['Symbol'].tolist())
+    except:
+        pass
+    return []
+
+
+def get_all_symbols():
+    """Return deduplicated union of all index lists: Nifty500 + Midcap150 + Smallcap250 + Microcap250."""
+    seen = set()
+    combined = []
+    for sym in (
+        get_nse_500_symbols() +
+        get_midcap_150_symbols() +
+        get_smallcap_250_symbols() +
+        get_microcap_250_symbols()
+    ):
+        if sym not in seen:
+            seen.add(sym)
+            combined.append(sym)
+    return combined
 
 def _fetch_and_analyze(symbol: str) -> dict | None:
     """Analyze a single symbol for VCP."""
     try:
-        t = yf.Ticker(symbol)
+        t = get_ticker(symbol)
         df = t.history(period=VCP_CONFIG["DATA_PERIOD"], interval="1d", auto_adjust=True, timeout=10)
         
         if df is None or len(df) < 200:
@@ -131,7 +217,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
 
 def scan_vcp():
     """Main VCP scanning orchestrator."""
-    symbols = get_nse_500_symbols()[:VCP_CONFIG["SYMBOL_CAP"]]
+    symbols = get_all_symbols()[:VCP_CONFIG["SYMBOL_CAP"]]
     logger.info(f"Scanning {len(symbols)} symbols for VCP conditions...")
     
     vcp_stocks = []

@@ -17,6 +17,16 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import yfinance as yf
+try:
+    from execution.yf_helper import get_ticker, get_historical_data_safe
+except ImportError:
+    try:
+        from yf_helper import get_ticker, get_historical_data_safe
+    except ImportError:
+        def get_ticker(symbol):
+            return yf.Ticker(symbol)
+        def get_historical_data_safe(symbol, period="5y"):
+            return yf.Ticker(symbol).history(period=period)
 from ta.trend import EMAIndicator, MACD, SMAIndicator
 from ta.momentum import RSIIndicator
 
@@ -33,7 +43,7 @@ MOMENTUM_CONFIG = {
     "VOLUME_SMA_PERIOD": 20,
     "DATA_PERIOD": "1y",
     "MAX_WORKERS": 15,
-    "SYMBOL_CAP": 500,
+    "SYMBOL_CAP": 800,
 }
 
 def _safe_float(v) -> float | None:
@@ -51,7 +61,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
     ticker = symbol if symbol.endswith((".NS", ".BO")) else symbol + ".NS"
 
     try:
-        t = yf.Ticker(ticker)
+        t = get_ticker(ticker)
         df = t.history(
             period=MOMENTUM_CONFIG["DATA_PERIOD"],
             interval="1d",
@@ -88,7 +98,7 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
 
         vol_sma20 = SMAIndicator(volume, window=MOMENTUM_CONFIG["VOLUME_SMA_PERIOD"]).sma_indicator()
 
-        # Get latest values
+        # Get latest values for safety checks
         latest_close = _safe_float(close.iloc[-1])
         latest_ema = _safe_float(ema20.iloc[-1])
         latest_rsi = _safe_float(rsi14.iloc[-1])
@@ -101,28 +111,59 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
         if None in (latest_close, latest_ema, latest_rsi, latest_macd, latest_signal, latest_vol, latest_vol_sma):
             return None
 
-        # Conditions
-        cond_ema = latest_close > latest_ema
-        cond_rsi = latest_rsi > MOMENTUM_CONFIG["RSI_THRESHOLD"]
-        cond_macd = latest_macd > latest_signal
-        cond_volume = latest_vol > latest_vol_sma
+        # Check sessions S = -1, -2, -3
+        def check_session(idx):
+            try:
+                c = _safe_float(close.iloc[idx])
+                e = _safe_float(ema20.iloc[idx])
+                r = _safe_float(rsi14.iloc[idx])
+                m = _safe_float(macd_line.iloc[idx])
+                s = _safe_float(macd_signal.iloc[idx])
+                v = _safe_float(volume.iloc[idx])
+                vs = _safe_float(vol_sma20.iloc[idx])
+                
+                if None in (c, e, r, m, s, v, vs):
+                    return False
+                    
+                return c > e and r > MOMENTUM_CONFIG["RSI_THRESHOLD"] and m > s and v > vs
+            except Exception:
+                return False
 
-        if cond_ema and cond_rsi and cond_macd and cond_volume:
+        passed_today = check_session(-1)
+        passed_yesterday = len(close) >= 2 and check_session(-2)
+        passed_2days_ago = len(close) >= 3 and check_session(-3)
+
+        if passed_today or passed_yesterday or passed_2days_ago:
+            is_new_addition = passed_today and not passed_yesterday
+            
+            passed_sessions = []
+            if passed_today:
+                passed_sessions.append("Today")
+            if passed_yesterday:
+                passed_sessions.append("Yesterday")
+            if passed_2days_ago:
+                passed_sessions.append("2 Days Ago")
+
             date_str = str(df.index[-1].date())
             return {
                 "symbol": ticker,
                 "display_symbol": symbol,
                 "date": date_str,
-                "close": round(latest_close, 2),
-                "ema_20": round(latest_ema, 2),
-                "pct_above_ema": round((latest_close / latest_ema - 1) * 100, 2),
-                "rsi": round(latest_rsi, 2),
-                "macd": round(latest_macd, 4),
-                "macd_signal": round(latest_signal, 4),
+                "close": round(latest_close, 2) if latest_close is not None else 0.0,
+                "ema_20": round(latest_ema, 2) if latest_ema is not None else 0.0,
+                "pct_above_ema": round((latest_close / latest_ema - 1) * 100, 2) if latest_close and latest_ema else 0.0,
+                "rsi": round(latest_rsi, 2) if latest_rsi is not None else 0.0,
+                "macd": round(latest_macd, 4) if latest_macd is not None else 0.0,
+                "macd_signal": round(latest_signal, 4) if latest_signal is not None else 0.0,
                 "macd_hist": round(latest_hist, 4) if latest_hist is not None else 0.0,
-                "volume": int(latest_vol),
-                "vol_sma_20": int(latest_vol_sma),
-                "vol_ratio": round(latest_vol / latest_vol_sma, 2) if latest_vol_sma > 0 else 0.0,
+                "volume": int(latest_vol) if latest_vol is not None else 0,
+                "vol_sma_20": int(latest_vol_sma) if latest_vol_sma is not None else 0,
+                "vol_ratio": round(latest_vol / latest_vol_sma, 2) if latest_vol and latest_vol_sma > 0 else 0.0,
+                "passed_today": passed_today,
+                "passed_yesterday": passed_yesterday,
+                "passed_2days_ago": passed_2days_ago,
+                "passed_sessions": passed_sessions,
+                "is_new_addition": is_new_addition
             }
 
         return None
@@ -133,10 +174,10 @@ def _fetch_and_analyze(symbol: str) -> dict | None:
 
 def scan_momentum(cap: int = None) -> dict:
     try:
-        from execution.vcp_screener import get_nse_500_symbols
-        symbols_raw = get_nse_500_symbols()
+        from execution.vcp_screener import get_all_symbols
+        symbols_raw = get_all_symbols()
     except Exception as e:
-        logger.error("Could not load NSE 500 symbols: %s", e)
+        logger.error("Could not load symbols: %s", e)
         return {"error": f"Could not load symbol list: {e}"}
 
     cap = cap or MOMENTUM_CONFIG["SYMBOL_CAP"]
