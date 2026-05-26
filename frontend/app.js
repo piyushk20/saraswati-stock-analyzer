@@ -835,28 +835,56 @@ async function loadNse500Stocks() {
       cache: "no-store"
     });
     
-    if (!resp.ok) throw new Error(`Could not fetch NSE 500 list: ${resp.status}`);
+    if (!resp.ok) throw new Error(`Could not fetch stock list: ${resp.status}`);
     const data = await resp.json();
     
-    const nse500Group = document.getElementById("nse500Group");
-    if (nse500Group) nse500Group.innerHTML = "";
+    const nifty500Group = document.getElementById("nifty500Group");
+    const midcap150Group = document.getElementById("midcap150Group");
+    const smallcap250Group = document.getElementById("smallcap250Group");
+    const microcap250Group = document.getElementById("microcap250Group");
     
-    // Populate dropdown with fetched symbols
-    if (data && data.symbols) {
+    if (nifty500Group) nifty500Group.innerHTML = "";
+    if (midcap150Group) midcap150Group.innerHTML = "";
+    if (smallcap250Group) smallcap250Group.innerHTML = "";
+    if (microcap250Group) microcap250Group.innerHTML = "";
+    
+    // Fallback: if backend returns old format, populate nifty500Group with everything
+    if (data && data.symbols && !data.nifty500) {
       data.symbols.forEach(symbol => {
          const option = document.createElement("option");
          option.value = symbol;
          option.text = symbol;
-         if (nse500Group) {
-           nse500Group.appendChild(option);
+         if (nifty500Group) {
+           nifty500Group.appendChild(option);
          } else {
            stockSelector.add(option);
          }
       });
-      console.log(`Successfully loaded ${data.symbols.length} NSE 500 stocks.`);
+      console.log(`Fallback: Loaded ${data.symbols.length} stocks into Nifty 500 Equities.`);
+      return;
     }
+
+    // Populate each group
+    const populateGroup = (groupEl, symbols) => {
+      if (groupEl && symbols) {
+        symbols.forEach(symbol => {
+          const option = document.createElement("option");
+          option.value = symbol;
+          option.text = symbol;
+          groupEl.appendChild(option);
+        });
+      }
+    };
+
+    populateGroup(nifty500Group, data.nifty500);
+    populateGroup(midcap150Group, data.midcap150);
+    populateGroup(smallcap250Group, data.smallcap250);
+    populateGroup(microcap250Group, data.microcap250);
+
+    const totalLoaded = (data.nifty500?.length || 0) + (data.midcap150?.length || 0) + (data.smallcap250?.length || 0) + (data.microcap250?.length || 0);
+    console.log(`Successfully loaded ${totalLoaded} stocks across 4 index categories.`);
   } catch (e) {
-    console.error("Failed to load NSE 500 stocks", e);
+    console.error("Failed to load stocks list", e);
   }
 }
 

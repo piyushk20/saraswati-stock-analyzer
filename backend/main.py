@@ -485,20 +485,43 @@ def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
             get_smallcap_250_symbols,
             get_microcap_250_symbols
         )
-        symbols = set(get_nse_500_symbols())
-        symbols.update(get_midcap_150_symbols())
-        symbols.update(get_smallcap_250_symbols())
-        symbols.update(get_microcap_250_symbols())
+        nifty500 = sorted(get_nse_500_symbols())
+        midcap150 = sorted(get_midcap_150_symbols())
+        smallcap250 = sorted(get_smallcap_250_symbols())
+        microcap250 = sorted(get_microcap_250_symbols())
         
-        sorted_symbols = sorted(list(symbols))
-        return {"symbols": sorted_symbols}
+        # Deduplicated combined union list for backwards compatibility
+        combined = set(nifty500)
+        combined.update(midcap150)
+        combined.update(smallcap250)
+        combined.update(microcap250)
+        
+        return {
+            "symbols": sorted(list(combined)),
+            "nifty500": nifty500,
+            "midcap150": midcap150,
+            "smallcap250": smallcap250,
+            "microcap250": microcap250
+        }
     except Exception as e:
         logger.error("Failed to fetch all stock symbols: %s", e, exc_info=True)
         try:
             from execution.vcp_screener import get_nse_500_symbols
-            return {"symbols": get_nse_500_symbols()}
+            return {
+                "symbols": get_nse_500_symbols(),
+                "nifty500": get_nse_500_symbols(),
+                "midcap150": [],
+                "smallcap250": [],
+                "microcap250": []
+            }
         except Exception:
-            return {"symbols": ["RELIANCE.NS", "TCS.NS"]}
+            return {
+                "symbols": ["RELIANCE.NS", "TCS.NS"],
+                "nifty500": ["RELIANCE.NS", "TCS.NS"],
+                "midcap150": [],
+                "smallcap250": [],
+                "microcap250": []
+            }
 
 @app.get("/health")
 async def health():
