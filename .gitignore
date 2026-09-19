@@ -83,6 +83,7 @@ dashboard_fixed.png
 stock_analysis_*.png
 test_err_state.png
 !screenshots/dashboard.png
+!screenshots/sector_heatmap.png
 
 # Frontend config (has real API key — use config.example.js instead)
 frontend/config.js
