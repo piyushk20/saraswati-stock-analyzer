@@ -210,7 +210,7 @@ def get_relative_strength(symbol, history_1m_pct, history_1y_pct):
         if nifty is not None and not nifty.empty and len(nifty) >= 21:
             n_curr = nifty['Close'].iloc[-1]
             n_1m = nifty['Close'].iloc[-21]
-            n_1y = nifty['Close'].iloc[0]
+            n_1y = nifty['Close'].iloc[-252] if len(nifty) >= 252 else nifty['Close'].iloc[0]
             
             nifty_1m_pct = ((n_curr - n_1m) / n_1m) * 100
             nifty_1y_pct = ((n_curr - n_1y) / n_1y) * 100
@@ -304,10 +304,15 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
     add_check("Price > 150 SMA", p150, f"₹{price:.0f} vs ₹{sma_150:.0f}" if (price and sma_150) else "N/A")
     add_check("Price > 200 SMA", p200, f"₹{price:.0f} vs ₹{sma_200:.0f}" if (price and sma_200) else "N/A")
 
-    # 2. 50 SMA > 200 SMA (MA alignment)
-    ma_align = bool(sma_50 > sma_200) if (sma_50 and sma_200) else False
-    add_check("50 SMA > 200 SMA", ma_align,
-              f"₹{sma_50:.0f} vs ₹{sma_200:.0f}" if (sma_50 and sma_200) else "N/A")
+    # 2. 150 SMA > 200 SMA (MA alignment)
+    ma_150_200 = bool(sma_150 > sma_200) if (sma_150 and sma_200) else False
+    add_check("150 SMA > 200 SMA", ma_150_200,
+              f"₹{sma_150:.0f} vs ₹{sma_200:.0f}" if (sma_150 and sma_200) else "N/A")
+
+    # 3. 50 SMA > both 150 SMA & 200 SMA
+    ma_align_50 = bool(sma_50 > sma_150 and sma_50 > sma_200) if (sma_50 and sma_150 and sma_200) else False
+    add_check("50 SMA > 150 & 200 SMA", ma_align_50,
+              f"₹{sma_50:.0f} vs ₹{sma_150:.0f}/₹{sma_200:.0f}" if (sma_50 and sma_150 and sma_200) else "N/A")
 
     # 3. 200 SMA trending up (compare to 1 month ago, ~21 bars)
     sma200_trending_up = False
@@ -371,8 +376,13 @@ def compute_trend_template(price, sma_20, sma_50, sma_200, df_full, wk52_high, w
     rs_score_val = None
     if rs_data:
         rs_1y = rs_data.get("nifty_1y") or 0
-        # Simple mapping: outperform Nifty by >10% → RS 80+, >5% → RS 70+
-        rs_score_val = 50 + rs_1y  # rough
+        # Professional scaling of Relative Strength Rating (1-99)
+        # Outperforming Nifty 50 by 50%+ yields 95-99 rating.
+        if rs_1y >= 0:
+            rs_score_val = 50 + (rs_1y / 2.0)
+        else:
+            rs_score_val = 50 + (rs_1y * 1.0)
+        rs_score_val = max(1, min(99, round(rs_score_val)))
         rs_ok = bool(rs_score_val > 70)
     add_check("Relative Strength > 70", rs_ok,
               f"~{rs_score_val:.0f}" if rs_score_val is not None else "N/A",

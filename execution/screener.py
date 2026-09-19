@@ -42,6 +42,13 @@ UNIVERSE = {
         "BAJAJ-AUTO","VEDL"
     ],
     "nifty200": [],  # filled dynamically via get_nse_500_symbols slice
+    "sectors": [
+        "^CNXFMCG", "^CNXPSUBANK", "^CNXREALTY", "^NSEBANK", "NIFTY_PVT_BANK.NS",
+        "NIFTY_FIN_SERVICE.NS", "^CNXMEDIA", "^CNXFIN", "NIFTY_OIL_AND_GAS.NS",
+        "^CNXMETAL", "^CNXAUTO", "NIFTY_CONSR_DURBL.NS", "^CNXPHARMA",
+        "NIFTY_MIDSML_HLTH.NS", "^CNXIT", "NIFTY_HEALTHCARE.NS", "^CNXENERGY",
+        "^CNXINFRA", "^CNXPSE", "^CNXCONSUM", "^CNXSERVICE"
+    ],
     "midcap100": [],
     "smallcap100": [],
     "midcap150": [],
@@ -52,7 +59,7 @@ UNIVERSE = {
 
 
 def _fetch_crossover(symbol: str, lookback: int) -> dict | None:
-    ticker = symbol if symbol.endswith(".NS") else symbol + ".NS"
+    ticker = symbol if (symbol.endswith((".NS", ".BO")) or symbol.startswith("^")) else symbol + ".NS"
     try:
         # Use Ticker.history() — avoids the MultiIndex column bug from yf.download()
         t = get_ticker(ticker)

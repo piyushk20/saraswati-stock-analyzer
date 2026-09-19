@@ -78,3 +78,16 @@ Errors are learning opportunities. When something breaks:
 You sit between human intent (directives) and deterministic execution (Python scripts). Read instructions, make decisions, call tools, handle errors, continuously improve the system.
 
 Be pragmatic. Be reliable. Self-anneal.
+
+## App Stable State Memory: Saraswati Dashboard
+
+- **App Name**: Saraswati Dashboard
+- **Workspace Path**: `c:\Users\HP\indianstock`
+- **Backend Port**: 8001
+- **Frontend Port**: 8081
+- **Last Verified Functional State**: 2026-08-13
+- **Active Endpoints**:
+  - GET `http://127.0.0.1:8001/health`
+- **Exact Launch Commands**:
+  - Backend: `python -m uvicorn main:app --host 127.0.0.1 --port 8001` from `backend/`
+  - Frontend: `python -m http.server 8081` from `frontend/`

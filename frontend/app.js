@@ -1,5 +1,23 @@
 // app.js
-console.log("🚀 APP.JS LOADED v6! 🚀");
+console.log("🚀 APP.JS LOADED v7 — back-btn fix! 🚀");
+
+// ── Session Token Handshake ───────────────────────────────────────────────────
+// Fetch a short-lived session token from the backend on startup.
+// The raw API key is never stored in any static JS file (C1 security fix).
+async function initSessionToken() {
+  try {
+    const res = await fetch(`${window.API_BASE}/api/handshake`, { method: "GET" });
+    if (res.ok) {
+      const data = await res.json();
+      window.SESSION_TOKEN = data.token;
+      console.log("✅ Session token acquired (expires in", Math.round(data.expires_in / 3600), "h)");
+    } else {
+      console.warn("⚠️ /api/handshake returned", res.status, "— API calls may be rejected");
+    }
+  } catch (e) {
+    console.error("❌ Could not reach backend for handshake:", e);
+  }
+}
 
 // Fetch with timeout — prevents scanner requests from hanging indefinitely
 const SCANNER_TIMEOUT_MS = 120000; // 120s per scanner request
@@ -45,6 +63,11 @@ window.changeMomentumCategory = function(cat) {
   // Reload data
   loadMarketOverview(cat);
   loadScreenerData(cat);
+
+  const rrgContent = document.getElementById("rrgTabContent");
+  if (rrgContent && rrgContent.style.display === "flex") {
+    triggerRrgScan(false);
+  }
 };
 
 window.runScanners = async function(isNewSession) {
@@ -70,7 +93,10 @@ window.runScanners = async function(isNewSession) {
   console.log(`🏁 All scanners completed in ${((performance.now()-scanStart)/1000).toFixed(1)}s`);
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  // Fetch session token from backend FIRST, before any authenticated API call.
+  await initSessionToken();
+
   // Populate the dropdown with NSE 500 stocks
   loadNse500Stocks();
   
@@ -90,6 +116,9 @@ document.addEventListener("DOMContentLoaded", () => {
      }
      if (select) select.value = lastStock;
      loadStockDashboard(lastStock);
+     // Pre-load market overview in background so it's ready when user clicks Back
+     loadMarketOverview(currentMomentumCategory).catch(() => {});
+     loadScreenerData(currentMomentumCategory).catch(() => {});
   } else if (!skipScans) {
     // Execute calls sequentially with delays instead of scattered timeouts
     // This prevents race conditions with layout loading and overlay hiding
@@ -205,11 +234,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const flagBox = document.getElementById("flagBox");
       if (flagBox) flagBox.style.display = "flex";
       
-      // Ensure data is loaded
-      if (document.getElementById("screenerTableBody").innerHTML.includes("Refreshing") || document.getElementById("screenerTableBody").innerHTML.trim() === "") {
-         loadScreenerData(currentMomentumCategory);
-         loadMarketOverview(currentMomentumCategory);
-      }
+      // Always reload market overview so gainers/losers/sectors are fresh
+      loadMarketOverview(currentMomentumCategory);
+      loadScreenerData(currentMomentumCategory);
+
       const vcpBody = document.getElementById("vcpScreenerBody");
       if (vcpBody && vcpBody.innerHTML.includes("Scanning")) {
          window.runScanners(false);
@@ -282,7 +310,7 @@ async function loadStockDashboard(symbol, period = null) {
     console.log(`📡 Fetching from: ${fetchUrl} (Period: ${currentPeriod})`);
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
     
@@ -353,16 +381,13 @@ function showRateLimitError(symbol) {
  * GLOBAL: Change Momentum Category
  */
 window.changeMomentumCategory = function(category) {
-  if (category === currentMomentumCategory) return;
-  
-  console.log(`🔄 Switching category to: ${category}`);
   currentMomentumCategory = category;
   localStorage.setItem('lastCategory', category);
   
   // Update UI buttons
   const buttons = document.querySelectorAll('.cat-btn');
   buttons.forEach(btn => {
-    if (btn.getAttribute('onclick').includes(`'${category}'`)) {
+    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${category}'`)) {
       btn.classList.add('active');
     } else {
       btn.classList.remove('active');
@@ -370,13 +395,25 @@ window.changeMomentumCategory = function(category) {
   });
   
   // Show localized loaders
-  document.getElementById("screenerTableBody").innerHTML = `<tr><td colspan="4" style="text-align:center;"><div class="pulse-loader">Refreshing ${category}...</div></td></tr>`;
-  document.getElementById("gainersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
-  document.getElementById("losersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
+  if (document.getElementById("screenerTableBody")) {
+    document.getElementById("screenerTableBody").innerHTML = `<tr><td colspan="4" style="text-align:center;"><div class="pulse-loader">Refreshing ${category}...</div></td></tr>`;
+  }
+  if (document.getElementById("gainersTableBody")) {
+    document.getElementById("gainersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
+  }
+  if (document.getElementById("losersTableBody")) {
+    document.getElementById("losersTableBody").innerHTML = `<tr><td colspan="3" style="text-align:center;"><div class="pulse-loader">Refreshing...</div></td></tr>`;
+  }
   
   // Trigger refreshes
   loadScreenerData(category);
   loadMarketOverview(category);
+
+  // RRG tab refresh
+  const rrgContent = document.getElementById("rrgTabContent");
+  if (rrgContent && rrgContent.style.display === "flex") {
+    triggerRrgScan(false);
+  }
 };
 
 async function loadScreenerData(category = 'nifty50', force = false) {
@@ -384,13 +421,23 @@ async function loadScreenerData(category = 'nifty50', force = false) {
   const screenerBox = document.getElementById("screenerBox");
   
   if (!tableBody || !screenerBox) return;
+
+  // Sector indices don't support EMA crossover screening — show a note instead
+  if (category === 'sectors') {
+    screenerBox.style.display = "block";
+    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding: 1.5rem;">
+      EMA crossover scanning is not applicable for sector indices.<br>
+      <span style="font-size:0.8rem;">Switch to the RRG tab to view sectoral relative strength.</span>
+    </td></tr>`;
+    return;
+  }
   
   try {
     const forceParam = force ? "&force=true" : "";
     const fetchUrl = `${window.API_BASE}/api/screener/crossovers?category=${category}&v=${new Date().getTime()}${forceParam}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
     
@@ -464,7 +511,7 @@ async function loadVcpScreenerData(force = false) {
     const fetchUrl = `${window.API_BASE}/api/screener/vcp?v=${new Date().getTime()}${forceParam}`;
 
     const resp = await fetchWithTimeout(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
     
@@ -520,7 +567,7 @@ async function loadEpScreenerData(force = false) {
     const forceParam = force ? "&force=true" : "";
     const fetchUrl = `${window.API_BASE}/api/screener/ep?v=${new Date().getTime()}${forceParam}`;
     const resp = await fetchWithTimeout(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
 
@@ -597,7 +644,7 @@ async function loadRsiScreenerData(force = false) {
     const forceParam = force ? "&force=true" : "";
     const fetchUrl = `${window.API_BASE}/api/screener/rsi?v=${new Date().getTime()}${forceParam}`;
     const resp = await fetchWithTimeout(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
 
@@ -666,7 +713,7 @@ async function loadMomentumScreenerData(force = false) {
     const forceParam = force ? "&force=true" : "";
     const fetchUrl = `${window.API_BASE}/api/screener/momentum?v=${new Date().getTime()}${forceParam}`;
     const resp = await fetchWithTimeout(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
 
@@ -762,7 +809,7 @@ async function loadFlagScreenerData(force = false) {
     const forceParam = force ? "&force=true" : "";
     const fetchUrl = `${window.API_BASE}/api/screener/flag?v=${new Date().getTime()}${forceParam}`;
     const resp = await fetchWithTimeout(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
 
@@ -831,7 +878,7 @@ async function loadNse500Stocks() {
     const fetchUrl = `${window.API_BASE}/api/market/nse500?v=${new Date().getTime()}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
     
@@ -894,7 +941,7 @@ async function loadMarketOverview(category = 'nifty50', force = false) {
     const fetchUrl = `${window.API_BASE}/api/market/overview?category=${category}&v=${new Date().getTime()}${forceParam}`;
 
     const resp = await fetch(fetchUrl, {
-      headers: { "X-API-Key": window.CONFIG.API_KEY },
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
       cache: "no-store"
     });
     
@@ -1014,6 +1061,63 @@ function renderMarketOverview(data) {
   } else if (losersBody) {
     losersBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">No losers data available</td></tr>`;
   }
+
+  // Render Sector Distribution
+  const sectorBody = document.getElementById("sectorDistributionBody");
+  if (sectorBody) {
+    if (data.sector_distribution && data.sector_distribution.length > 0) {
+      sectorBody.innerHTML = "";
+      data.sector_distribution.slice(0, 10).forEach(sec => {
+        const item = document.createElement("div");
+        item.style.display = "flex";
+        item.style.flexDirection = "column";
+        item.style.gap = "5px";
+        item.style.marginBottom = "10px";
+        item.style.padding = "6px 8px";
+        item.style.background = "rgba(255, 255, 255, 0.02)";
+        item.style.borderRadius = "6px";
+        item.style.border = "1px solid rgba(255, 255, 255, 0.04)";
+        
+        const pct = sec.percentage;
+        const change = sec.change || 0.0;
+        const changeClass = change >= 0 ? "text-green" : "text-red";
+        const sign = change > 0 ? "+" : "";
+        
+        let flowBadgeHtml = "";
+        if (sec.flow === "Smart Money In") {
+          flowBadgeHtml = `<span style="background:rgba(0,230,118,0.1); color:#00e676; border:1px solid rgba(0,230,118,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">🔥 Smart Money In</span>`;
+        } else if (sec.flow === "Smart Money Out") {
+          flowBadgeHtml = `<span style="background:rgba(255,23,68,0.1); color:#ff1744; border:1px solid rgba(255,23,68,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">⚠️ Smart Money Out</span>`;
+        } else if (sec.flow === "Positive Flow") {
+          flowBadgeHtml = `<span style="background:rgba(6,182,212,0.08); color:var(--accent-cyan); border:1px solid rgba(6,182,212,0.2); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Accumulating</span>`;
+        } else if (sec.flow === "Negative Flow") {
+          flowBadgeHtml = `<span style="background:rgba(236,72,153,0.08); color:var(--accent-magenta); border:1px solid rgba(236,72,153,0.2); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;">Softening</span>`;
+        } else {
+          flowBadgeHtml = `<span style="background:rgba(255,255,255,0.03); color:var(--text-muted); border:1px solid rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em;">Neutral</span>`;
+        }
+        
+        item.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem;">
+            <span style="font-weight:600; color:var(--text-main); max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${sanitize(sec.sector)}">${sanitize(sec.sector)}</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="${changeClass}" style="font-family:var(--font-mono); font-weight:700;">${sign}${change.toFixed(2)}%</span>
+              ${flowBadgeHtml}
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:var(--text-dim); margin-top: 2px;">
+            <span>Weight: ${sanitize(String(sec.count))} stocks (${sanitize(pct.toFixed(1))}%)</span>
+            <span style="font-family:var(--font-mono);">Vol Ratio: ${sec.vol_ratio.toFixed(2)}x</span>
+          </div>
+          <div style="background:rgba(255,255,255,0.05); height:4px; border-radius:2px; overflow:hidden; width:100%; margin-top:2px;">
+            <div style="background:linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); height:100%; width:${pct}%; border-radius:2px;"></div>
+          </div>
+        `;
+        sectorBody.appendChild(item);
+      });
+    } else {
+      sectorBody.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:2rem;">No sector distribution data available</div>`;
+    }
+  }
 }
 
 function renderDashboard(data) {
@@ -1079,17 +1183,23 @@ function renderChart(data) {
 
   const hasOHLC = opens.length > 0 && highs.length > 0 && lows.length > 0;
 
-  // --- Detect and Register chartjs-chart-financial plugins ---
+  // --- Detect candlestick controller via Chart's registry ---
+  let hasCandlestick = false;
   if (typeof Chart !== 'undefined') {
+    // CDN UMD build auto-registers; also try manual registration if globals exist
     if (window.CandlestickController) {
-      Chart.register(window.CandlestickController, window.OhlcController, window.CandlestickElement, window.OhlcElement);
+      try { Chart.register(window.CandlestickController, window.OhlcController, window.CandlestickElement, window.OhlcElement); } catch(_) {}
+    }
+    // Actually check if the type is registered
+    try {
+      hasCandlestick = !!Chart.registry.controllers.get('candlestick');
+    } catch(_) {
+      hasCandlestick = false;
     }
   }
+  console.log(`📊 Candlestick plugin registered: ${hasCandlestick}, hasOHLC: ${hasOHLC}`);
 
-  let hasCandlestick = true; // Force true since we include Candlestick CDN scripts unconditionally
-  console.log(`📊 Candlestick plugin available: ${hasCandlestick}, hasOHLC: ${hasOHLC}`);
-
-  // Format x-axis labels
+  // Format x-axis labels (for line chart fallback)
   const labels = dates.map(d => {
     const dt = new Date(d);
     return dt.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
@@ -1108,12 +1218,15 @@ function renderChart(data) {
   const scalesDefaults = {
     x: {
       type: 'timeseries',
+      offset: true,
       grid: { display: false, color: 'rgba(255,255,255,0.02)' },
       ticks: { 
         maxTicksLimit: 8, 
         color: '#607d8b', 
         font: { size: 10 },
-        source: 'data'
+        source: 'data',
+        maxRotation: 0,
+        autoSkip: true,
       }
     },
     y: {
@@ -1127,101 +1240,123 @@ function renderChart(data) {
     }
   };
 
+  // Build timestamped data arrays (shared by both paths)
+  const ohlcData = dates.map((d, i) => ({
+    x: new Date(d).getTime(),
+    o: opens[i],
+    h: highs[i],
+    l: lows[i],
+    c: closes[i]
+  }));
+  const ema20Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema20[i] })).filter(p => p.y != null);
+  const ema50Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema50[i] })).filter(p => p.y != null);
+  const ema200Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema200[i] })).filter(p => p.y != null);
+
+  const emaDatasets = [
+    { label: 'EMA 20',  data: ema20Data,  type: 'line', borderColor: '#ff9100', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1, order: 1 },
+    { label: 'EMA 50',  data: ema50Data,  type: 'line', borderColor: '#00e5ff', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1, order: 1 },
+    { label: 'EMA 200', data: ema200Data, type: 'line', borderColor: '#d32f2f', borderWidth: 1.2, borderDash: [4,4], pointRadius: 0, fill: false, tension: 0.1, order: 1 },
+  ];
+
   if (hasCandlestick && hasOHLC) {
     // ── True Candlestick Chart ──────────────────────────
     const candlestickCtx = document.getElementById('candlestickChart');
     if (!candlestickCtx) return;
     const ctx = candlestickCtx.getContext('2d');
 
-    const chartData = dates.map((d, i) => ({
-      x: new Date(d).getTime(),
-      o: opens[i],
-      h: highs[i],
-      l: lows[i],
-      c: closes[i]
-    }));
-
-    const ema20Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema20[i] }));
-    const ema50Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema50[i] }));
-    const ema200Data = dates.map((d, i) => ({ x: new Date(d).getTime(), y: ema200[i] }));
-
-    chartInstance = new Chart(ctx, {
-      type: 'candlestick',
-      data: {
-        datasets: [
-          {
-            label: 'OHLC',
-            data: chartData,
-            color: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' },
-            borderColor: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' },
-            wickColor: { up: '#00e676', down: '#ff1744', unchanged: '#90a4ae' }
-          },
-          { label: 'EMA 20',  data: ema20Data,  type: 'line', borderColor: '#ff9100', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1 },
-          { label: 'EMA 50',  data: ema50Data,  type: 'line', borderColor: '#00e5ff', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.1 },
-          { label: 'EMA 200', data: ema200Data, type: 'line', borderColor: '#d32f2f', borderWidth: 1.2, borderDash: [4,4], pointRadius: 0, fill: false, tension: 0.1 },
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: false }, tooltip: tooltipDefaults },
-        scales: scalesDefaults
-      }
-    });
-  } else {
-    // ── Fallback: Line Close + EMA lines ──────────────────
-    const canvasId = document.getElementById('candlestickChart') ? 'candlestickChart' : 'mainChart';
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-
-    const startP = closes[0] || 0;
-    const endP   = closes[closes.length - 1] || 0;
-    const isUp   = endP >= startP;
-    const lineColor = isUp ? '#00e676' : '#ff003c';
-    const gradStart = isUp ? 'rgba(0,230,118,0.35)' : 'rgba(255,0,60,0.35)';
-
-    const ctx = canvas.getContext('2d');
-    const gradient = ctx.createLinearGradient(0, 0, 0, 380);
-    gradient.addColorStop(0, gradStart);
-    gradient.addColorStop(1, 'rgba(4,4,12,0)');
-
-    chartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Close', data: closes,
-            borderColor: lineColor, backgroundColor: gradient,
-            borderWidth: 2, pointRadius: 0, pointHoverRadius: 5,
-            fill: true, tension: 0.2
-          },
-          {
-            label: 'EMA 20', data: ema20,
-            borderColor: '#ff9100', borderWidth: 1.5,
-            pointRadius: 0, fill: false, tension: 0.3
-          },
-          {
-            label: 'EMA 50', data: ema50,
-            borderColor: '#00e5ff', borderWidth: 1.5,
-            pointRadius: 0, fill: false, tension: 0.3
-          },
-          {
-            label: 'EMA 200', data: ema200,
-            borderColor: '#ff003c', borderWidth: 1.5,
-            borderDash: [4, 4],
-            pointRadius: 0, fill: false, tension: 0.3
-          }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: false }, tooltip: tooltipDefaults },
-        scales: scalesDefaults
-      }
-    });
+    try {
+      chartInstance = new Chart(ctx, {
+        type: 'candlestick',
+        data: {
+          datasets: [
+            {
+              label: 'OHLC',
+              data: ohlcData,
+              // chartjs-chart-financial v0.2.x color API
+              color: {
+                up: 'rgba(0, 230, 118, 0.85)',
+                down: 'rgba(255, 23, 68, 0.85)',
+                unchanged: 'rgba(144, 164, 174, 0.85)'
+              },
+              borderColor: {
+                up: '#00e676',
+                down: '#ff1744',
+                unchanged: '#90a4ae'
+              },
+              order: 0,
+            },
+            ...emaDatasets
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false }, tooltip: tooltipDefaults },
+          scales: scalesDefaults
+        }
+      });
+      console.log('✅ Candlestick chart rendered successfully');
+      return; // Success — skip fallback
+    } catch(chartErr) {
+      console.error('⚠️ Candlestick chart failed, falling back to line chart:', chartErr);
+      // Fall through to line chart
+      if (chartInstance) { try { chartInstance.destroy(); } catch(_){} chartInstance = null; }
+    }
   }
+
+  // ── Fallback: Line Close + EMA lines ──────────────────
+  const canvasId = document.getElementById('candlestickChart') ? 'candlestickChart' : 'mainChart';
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const startP = closes[0] || 0;
+  const endP   = closes[closes.length - 1] || 0;
+  const isUp   = endP >= startP;
+  const lineColor = isUp ? '#00e676' : '#ff003c';
+  const gradStart = isUp ? 'rgba(0,230,118,0.35)' : 'rgba(255,0,60,0.35)';
+
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 380);
+  gradient.addColorStop(0, gradStart);
+  gradient.addColorStop(1, 'rgba(4,4,12,0)');
+
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Close', data: closes,
+          borderColor: lineColor, backgroundColor: gradient,
+          borderWidth: 2, pointRadius: 0, pointHoverRadius: 5,
+          fill: true, tension: 0.2
+        },
+        {
+          label: 'EMA 20', data: ema20,
+          borderColor: '#ff9100', borderWidth: 1.5,
+          pointRadius: 0, fill: false, tension: 0.3
+        },
+        {
+          label: 'EMA 50', data: ema50,
+          borderColor: '#00e5ff', borderWidth: 1.5,
+          pointRadius: 0, fill: false, tension: 0.3
+        },
+        {
+          label: 'EMA 200', data: ema200,
+          borderColor: '#ff003c', borderWidth: 1.5,
+          borderDash: [4, 4],
+          pointRadius: 0, fill: false, tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: tooltipDefaults },
+      scales: scalesDefaults
+    }
+  });
+  console.log('📉 Rendered fallback line chart');
 }
 
 // ─── TREND TEMPLATE CHECKLIST ─────────────────────────────────────────────────
@@ -1941,6 +2076,29 @@ function sanitize(str) {
     .replace(/'/g, "&#x27;");
 }
 
+function formatSymbol(sym) {
+  if (!sym) return "";
+  const clean = sym.replace(/%5E/i, "^").replace(".NS", "");
+  const mapping = {
+    "^NSEBANK": "BANK NIFTY",
+    "^CNXIT": "NIFTY IT",
+    "^CNXAUTO": "NIFTY AUTO",
+    "^CNXFMCG": "NIFTY FMCG",
+    "^CNXMETAL": "NIFTY METAL",
+    "^CNXPHARMA": "NIFTY PHARMA",
+    "^CNXREALTY": "NIFTY REALTY",
+    "^CNXENERGY": "NIFTY ENERGY",
+    "^CNXINFRA": "NIFTY INFRA",
+    "^CNXFIN": "NIFTY FIN SERVICES",
+    "^CNXPSE": "NIFTY PSE",
+    "^CNXCOMM": "NIFTY COMMODITIES",
+    "^CNXCONSUM": "NIFTY CONSUMPTION",
+    "^NSEI": "NIFTY 50",
+    "^BSESN": "SENSEX"
+  };
+  return mapping[clean] || clean;
+}
+
 function fmt(val) {
   if (val === null || val === undefined) return "N/A";
   return "₹" + Number(val).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2033,3 +2191,808 @@ document.addEventListener('click', (e) => {
     loadStockDashboard(currentSymbol, period);
   }
 });
+
+// -----------------------------------------------------------------
+// RELATIVE ROTATION GRAPH (RRG) TABS & CHARTING
+// -----------------------------------------------------------------
+let rrgChartInstance = null;
+
+
+window.triggerRrgScan = async function(force = false) {
+  const loader = document.getElementById("rrgLoader");
+  const container = document.querySelector(".rrg-chart-container");
+  
+  if (loader) loader.style.display = "block";
+  if (container) container.style.opacity = "0.4";
+  
+  try {
+    const rsWindow = document.getElementById("rrgRsWindow").value || 10;
+    const momWindow = document.getElementById("rrgMomWindow").value || 4;
+    const cat = currentMomentumCategory || 'nifty50';
+    
+    console.log(`📡 Fetching RRG data for category ${cat} (RS: ${rsWindow}, Mom: ${momWindow})...`);
+    const forceParam = force ? "&force=true" : "";
+    const fetchUrl = `${window.API_BASE}/api/screener/rrg?category=${cat}&rs_window=${rsWindow}&mom_window=${momWindow}${forceParam}&v=${new Date().getTime()}`;
+    
+    const resp = await fetchWithTimeout(fetchUrl, {
+      headers: { "X-API-Key": window.SESSION_TOKEN || "" },
+      cache: "no-store"
+    });
+    
+    if (!resp.ok) throw new Error(`RRG request failed: ${resp.status}`);
+    const data = await resp.json();
+    
+    renderRrgChart(data);
+    renderRrgLists(data.stocks);
+    
+  } catch (err) {
+    console.error("RRG scan error:", err);
+  } finally {
+    if (loader) loader.style.display = "none";
+    if (container) container.style.opacity = "1";
+  }
+};
+
+window.renderRrgChart = function(data) {
+  const canvas = document.getElementById("rrgChart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  
+  if (rrgChartInstance) {
+    rrgChartInstance.destroy();
+  }
+  
+  const stocks = data.stocks || [];
+  
+  const chartData = {
+    datasets: [{
+      label: 'Equities',
+      data: stocks.map(s => ({ x: s.rs_ratio, y: s.rs_momentum, symbol: s.symbol, quadrant: s.quadrant })),
+      backgroundColor: stocks.map(s => {
+        if (s.quadrant === 'Leading') return '#00e676';
+        if (s.quadrant === 'Improving') return '#00e5ff';
+        if (s.quadrant === 'Weakening') return '#ff9100';
+        return '#ff1744';
+      }),
+      borderColor: 'rgba(255, 255, 255, 0.25)',
+      borderWidth: 1.5,
+      pointRadius: 6,
+      pointHoverRadius: 9,
+    }]
+  };
+  
+  // Find min/max to center around (100, 100)
+  let maxDist = 2.0;
+  stocks.forEach(s => {
+    const dx = Math.abs(s.rs_ratio - 100);
+    const dy = Math.abs(s.rs_momentum - 100);
+    if (dx > maxDist) maxDist = dx;
+    if (dy > maxDist) maxDist = dy;
+  });
+  
+  maxDist = maxDist * 1.15;
+  const xMin = 100 - maxDist;
+  const xMax = 100 + maxDist;
+  const yMin = 100 - maxDist;
+  const yMax = 100 + maxDist;
+  
+  rrgChartInstance = new Chart(ctx, {
+    type: 'scatter',
+    data: chartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          min: xMin,
+          max: xMax,
+          grid: {
+            color: 'rgba(255, 255, 255, 0.05)'
+          },
+          title: {
+            display: true,
+            text: 'RS Ratio (Relative Strength)',
+            color: 'rgba(255, 255, 255, 0.7)',
+            font: { family: 'Outfit', size: 12, weight: '600' }
+          },
+          ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+        },
+        y: {
+          min: yMin,
+          max: yMax,
+          grid: {
+            color: 'rgba(255, 255, 255, 0.05)'
+          },
+          title: {
+            display: true,
+            text: 'RS Momentum (Relative Momentum)',
+            color: 'rgba(255, 255, 255, 0.7)',
+            font: { family: 'Outfit', size: 12, weight: '600' }
+          },
+          ticks: { color: 'rgba(255, 255, 255, 0.5)' }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const item = context.raw;
+              return `${item.symbol}: RS Ratio: ${item.x.toFixed(2)}, RS Momentum: ${item.y.toFixed(2)} (${item.quadrant})`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: 'quadrantShading',
+      beforeDraw: function(chart) {
+        const { ctx, chartArea: { left, top, right, bottom }, scales: { x, y } } = chart;
+        const centerX = x.getPixelForValue(100);
+        const centerY = y.getPixelForValue(100);
+        
+        ctx.save();
+        
+        // Shading: Leading
+        ctx.fillStyle = 'rgba(0, 230, 118, 0.035)';
+        ctx.fillRect(centerX, top, right - centerX, centerY - top);
+        
+        // Shading: Improving
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.035)';
+        ctx.fillRect(left, top, centerX - left, centerY - top);
+        
+        // Shading: Weakening
+        ctx.fillStyle = 'rgba(255, 145, 0, 0.035)';
+        ctx.fillRect(centerX, centerY, right - centerX, bottom - centerY);
+        
+        // Shading: Lagging
+        ctx.fillStyle = 'rgba(255, 23, 68, 0.035)';
+        ctx.fillRect(left, centerY, centerX - left, bottom - centerY);
+        
+        // Lines
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, top);
+        ctx.lineTo(centerX, bottom);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(left, centerY);
+        ctx.lineTo(right, centerY);
+        ctx.stroke();
+        
+        // Text labels
+        ctx.font = '600 12px Outfit';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        
+        ctx.textAlign = 'right';
+        ctx.fillText('LEADING', right - 15, top + 20);
+        
+        ctx.textAlign = 'left';
+        ctx.fillText('IMPROVING', left + 15, top + 20);
+        
+        ctx.textAlign = 'right';
+        ctx.fillText('WEAKENING', right - 15, bottom - 15);
+        
+        ctx.textAlign = 'left';
+        ctx.fillText('LAGGING', left + 15, bottom - 15);
+        
+        ctx.restore();
+      },
+      afterDatasetsDraw: function(chart) {
+        const { ctx, scales: { x, y } } = chart;
+        const dataset = chart.data.datasets[0];
+        
+        ctx.save();
+        ctx.font = '600 10px JetBrains Mono, Inter, monospace';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.textBaseline = 'middle';
+        
+        const showAll = document.getElementById("rrgShowAllLabels") && document.getElementById("rrgShowAllLabels").checked;
+        const threshold = 1.6;
+        
+        // Track bounding boxes of drawn labels to prevent overlaps
+        const drawnLabelBoxes = [];
+        
+        // Sort items by distance from center descending so outermost/important stocks get label priority
+        const sortedData = [...dataset.data].sort((a, b) => {
+          const distA = Math.sqrt(Math.pow(a.x - 100, 2) + Math.pow(a.y - 100, 2));
+          const distB = Math.sqrt(Math.pow(b.x - 100, 2) + Math.pow(b.y - 100, 2));
+          return distB - distA;
+        });
+        
+        sortedData.forEach((item) => {
+          const ptX = x.getPixelForValue(item.x);
+          const ptY = y.getPixelForValue(item.y);
+          
+          const dist = Math.sqrt(Math.pow(item.x - 100, 2) + Math.pow(item.y - 100, 2));
+          
+          if (showAll || dist >= threshold) {
+            if (ptX >= chart.chartArea.left && ptX <= chart.chartArea.right &&
+                ptY >= chart.chartArea.top && ptY <= chart.chartArea.bottom) {
+              
+              const textWidth = ctx.measureText(item.symbol).width;
+              const textHeight = 10;
+              
+              // Try placements around the dot: increasing distance (8px, 14px, 20px) and 8 directions (angles)
+              let placed = false;
+              const distances = [8, 14, 20];
+              const angles = [0, 45, 90, 135, 180, 225, 270, 315]; // in degrees
+              
+              for (const r of distances) {
+                if (placed) break;
+                for (const angle of angles) {
+                  const rad = (angle * Math.PI) / 180;
+                  const dx = r * Math.cos(rad);
+                  const dy = r * Math.sin(rad);
+                  
+                  // Text alignment based on direction
+                  let align = 'center';
+                  if (dx > 4) align = 'left';
+                  else if (dx < -4) align = 'right';
+                  
+                  const posX = ptX + dx;
+                  const posY = ptY + dy;
+                  
+                  const box = {
+                    x1: align === 'left' ? posX - 2 : (align === 'right' ? posX - textWidth - 2 : posX - textWidth / 2 - 2),
+                    y1: posY - textHeight / 2 - 2,
+                    x2: align === 'left' ? posX + textWidth + 2 : (align === 'right' ? posX + 2 : posX + textWidth / 2 + 2),
+                    y2: posY + textHeight / 2 + 2
+                  };
+                  
+                  // 1. Check overlap with other drawn labels
+                  let collision = false;
+                  for (const other of drawnLabelBoxes) {
+                    if (!(box.x2 < other.x1 || box.x1 > other.x2 || box.y2 < other.y1 || box.y1 > other.y2)) {
+                      collision = true;
+                      break;
+                    }
+                  }
+                  
+                  // 2. Check overlap with OTHER stock points (dots)
+                  if (!collision) {
+                    for (const otherItem of dataset.data) {
+                      if (otherItem.symbol === item.symbol) continue;
+                      const otherPtX = x.getPixelForValue(otherItem.x);
+                      const otherPtY = y.getPixelForValue(otherItem.y);
+                      
+                      const dotMargin = 6;
+                      const dotBox = {
+                        x1: otherPtX - dotMargin,
+                        y1: otherPtY - dotMargin,
+                        x2: otherPtX + dotMargin,
+                        y2: otherPtY + dotMargin
+                      };
+                      if (!(box.x2 < dotBox.x1 || box.x1 > dotBox.x2 || box.y2 < dotBox.y1 || box.y1 > dotBox.y2)) {
+                        collision = true;
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (!collision) {
+                    // Draw label
+                    ctx.textAlign = align;
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+                    ctx.shadowBlur = 4;
+                    ctx.fillText(formatSymbol(item.symbol), posX, posY);
+                    
+                    // Record bounding box
+                    drawnLabelBoxes.push(box);
+                    placed = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        });
+        
+        ctx.restore();
+      }
+    }]
+  });
+  window.rrgChartInstance = rrgChartInstance;
+};
+
+window.renderRrgLists = function(stocks) {
+  const leading = document.getElementById("rrgLeadingList");
+  const improving = document.getElementById("rrgImprovingList");
+  const weakening = document.getElementById("rrgWeakeningList");
+  const lagging = document.getElementById("rrgLaggingList");
+  
+  if (!leading || !improving || !weakening || !lagging) return;
+  
+  leading.innerHTML = "";
+  improving.innerHTML = "";
+  weakening.innerHTML = "";
+  lagging.innerHTML = "";
+  
+  stocks.forEach(s => {
+    const item = document.createElement("div");
+    item.className = "rrg-list-item";
+    // Sector indices (starting with ^) shouldn't get .NS suffix
+    const clickSym = s.symbol.startsWith('^') ? s.symbol : s.symbol + ".NS";
+    item.onclick = () => {
+      loadStockDashboard(clickSym);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    
+    let quadClass = s.quadrant.toLowerCase();
+    
+    item.innerHTML = `
+      <span>${sanitize(formatSymbol(s.symbol))}</span>
+      <span class="rrg-val-pill ${quadClass}">${s.rs_ratio.toFixed(1)}</span>
+    `;
+    
+    if (s.quadrant === 'Leading') leading.appendChild(item);
+    else if (s.quadrant === 'Improving') improving.appendChild(item);
+    else if (s.quadrant === 'Weakening') weakening.appendChild(item);
+    else if (s.quadrant === 'Lagging') lagging.appendChild(item);
+  });
+  
+  const placeholder = `<span style="color:var(--text-muted);font-size:0.8rem;font-style:italic;">No stocks</span>`;
+  if (leading.children.length === 0) leading.innerHTML = placeholder;
+  if (improving.children.length === 0) improving.innerHTML = placeholder;
+  if (weakening.children.length === 0) weakening.innerHTML = placeholder;
+  if (lagging.children.length === 0) lagging.innerHTML = placeholder;
+};
+
+// Human-readable labels for NSE sectoral index tickers
+const RRG_SYMBOL_LABELS = {
+  "^NSEBANK":              "Nifty Bank",
+  "^CNXIT":                "Nifty IT",
+  "^CNXAUTO":              "Nifty Auto",
+  "^CNXFMCG":              "Nifty FMCG",
+  "^CNXMETAL":             "Nifty Metal",
+  "^CNXPHARMA":            "Nifty Pharma",
+  "^CNXREALTY":            "Nifty Realty",
+  "^CNXENERGY":            "Nifty Energy",
+  "^CNXINFRA":             "Nifty Infra",
+  "^CNXFIN":               "Nifty Fin Service 25/50",
+  "^CNXPSE":               "Nifty PSE",
+  "^CNXCONSUM":            "Nifty Consumption",
+  "^CNXSERVICE":           "Nifty Services",
+  "^CNXPSUBANK":           "Nifty PSU Bank",
+  "^CNXMEDIA":             "Nifty Media",
+  "NIFTY_PVT_BANK":        "Nifty Private Bank",
+  "NIFTY_PVT_BANK.NS":     "Nifty Private Bank",
+  "NIFTY_FIN_SERVICE":     "Nifty Financial Services",
+  "NIFTY_FIN_SERVICE.NS":  "Nifty Financial Services",
+  "NIFTY_OIL_AND_GAS":     "NIFTY OIL & GAS",
+  "NIFTY_OIL_AND_GAS.NS":  "NIFTY OIL & GAS",
+  "NIFTY_CONSR_DURBL":     "NIFTY CONSUMER DURABLES",
+  "NIFTY_CONSR_DURBL.NS":  "NIFTY CONSUMER DURABLES",
+  "NIFTY_MIDSML_HLTH":     "Nifty MidSmall Healthcare",
+  "NIFTY_MIDSML_HLTH.NS":  "Nifty MidSmall Healthcare",
+  "NIFTY_HEALTHCARE":      "Nifty Healthcare",
+  "NIFTY_HEALTHCARE.NS":   "Nifty Healthcare",
+  "^NSEI":                 "NIFTY 50",
+  "^NSEMDCP50":            "NIFTY MID50",
+  "^BSESN":                "SENSEX",
+};
+
+function formatSymbol(sym) {
+  return RRG_SYMBOL_LABELS[sym] || sym;
+}
+
+// ── Tab Switcher & Data Loader ──────────────────────────────────────────────
+window.switchDashboardTab = function(tab) {
+  console.log("👉 switchDashboardTab called with:", tab);
+  const overviewContent = document.getElementById("overviewTabContent");
+  const sectorHeatmapContent = document.getElementById("sectorHeatmapTabContent");
+  const rrgContent = document.getElementById("rrgTabContent");
+  const backtestContent = document.getElementById("backtestTabContent");
+  const momentum30Content = document.getElementById("momentum30TabContent");
+  
+  document.querySelectorAll(".dashboard-tabs .tab-nav-btn").forEach(btn => {
+    btn.classList.remove("active");
+  });
+  
+  if (tab === "overview") {
+    if (overviewContent) overviewContent.style.display = "flex";
+    if (sectorHeatmapContent) sectorHeatmapContent.style.display = "none";
+    if (rrgContent) rrgContent.style.display = "none";
+    if (backtestContent) backtestContent.style.display = "none";
+    if (momentum30Content) momentum30Content.style.display = "none";
+    const btn = document.getElementById("tabBtnOverview");
+    if (btn) btn.classList.add("active");
+  } else if (tab === "sectorHeatmap") {
+    if (overviewContent) overviewContent.style.display = "none";
+    if (sectorHeatmapContent) sectorHeatmapContent.style.display = "flex";
+    if (rrgContent) rrgContent.style.display = "none";
+    if (backtestContent) backtestContent.style.display = "none";
+    if (momentum30Content) momentum30Content.style.display = "none";
+    const btn = document.getElementById("tabBtnSectorHeatmap");
+    if (btn) btn.classList.add("active");
+    loadSectorHeatmap();
+  } else if (tab === "rrg") {
+    if (overviewContent) overviewContent.style.display = "none";
+    if (sectorHeatmapContent) sectorHeatmapContent.style.display = "none";
+    if (rrgContent) rrgContent.style.display = "flex";
+    if (backtestContent) backtestContent.style.display = "none";
+    if (momentum30Content) momentum30Content.style.display = "none";
+    const btn = document.getElementById("tabBtnRrg");
+    if (btn) btn.classList.add("active");
+    if (typeof triggerRrgScan === "function") triggerRrgScan(false);
+  } else if (tab === "backtest") {
+    if (overviewContent) overviewContent.style.display = "none";
+    if (sectorHeatmapContent) sectorHeatmapContent.style.display = "none";
+    if (rrgContent) rrgContent.style.display = "none";
+    if (backtestContent) backtestContent.style.display = "flex";
+    if (momentum30Content) momentum30Content.style.display = "none";
+    const btn = document.getElementById("tabBtnBacktest");
+    if (btn) btn.classList.add("active");
+    loadBacktestSummary(true);
+  } else if (tab === "momentum30") {
+    if (overviewContent) overviewContent.style.display = "none";
+    if (sectorHeatmapContent) sectorHeatmapContent.style.display = "none";
+    if (rrgContent) rrgContent.style.display = "none";
+    if (backtestContent) backtestContent.style.display = "none";
+    if (momentum30Content) momentum30Content.style.display = "flex";
+    const btn = document.getElementById("tabBtnMomentum30");
+    if (btn) btn.classList.add("active");
+    loadMomentum30(false);
+  }
+};
+
+window.loadBacktestSummary = async function(force = false) {
+  const tbody = document.getElementById("backtestTableBody");
+  if (!tbody) return;
+  if (!force && tbody.querySelectorAll("tr").length > 1) return;
+
+  tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;"><div class="pulse-loader">Loading strategy backtest results...</div></td></tr>`;
+  try {
+    const apiKey = window.SESSION_TOKEN || "";
+    const res = await fetch(`${window.API_BASE}/api/backtest/summary`, {
+      headers: { "X-API-Key": apiKey }
+    });
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const data = await res.json();
+    const summary = data.summary || [];
+
+    if (summary.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 20px;">No backtest data available. Run backtest engine first.</td></tr>`;
+      return;
+    }
+
+    let rowsHtml = "";
+    summary.forEach(item => {
+      const totalRet = Number(item["Total Return (%)"]) || 0;
+      const buyHold = Number(item["Buy & Hold Return (%)"]) || 0;
+      const cagr = Number(item["CAGR (%)"]) || 0;
+      const maxDd = Number(item["Max Drawdown (%)"]) || 0;
+      const sharpe = Number(item["Sharpe Ratio"]) || 0;
+      const winRate = Number(item["Win Rate (%)"]) || 0;
+      const totalTrades = item["Total Trades"] !== undefined ? item["Total Trades"] : 0;
+      const isRetPos = totalRet >= 0;
+      const retClass = isRetPos ? "text-green" : "text-red";
+      const retSign = isRetPos ? "+" : "";
+
+      const tearsheetUrl = item["Tearsheet"] 
+        ? `${window.API_BASE}/api/backtest/tearsheet/${item["Tearsheet"]}`
+        : "#";
+
+      rowsHtml += `
+        <tr>
+          <td style="font-weight: 600;">${sanitize(item.Ticker)}</td>
+          <td style="color: var(--accent-cyan); font-weight: 500;">${sanitize(String(item.Strategy).replace(/_/g, ' '))}</td>
+          <td class="${retClass}" style="font-weight: 600;">${retSign}${totalRet.toFixed(2)}%</td>
+          <td style="color: var(--text-muted);">${buyHold.toFixed(2)}%</td>
+          <td>${cagr.toFixed(2)}%</td>
+          <td class="text-red">${maxDd.toFixed(2)}%</td>
+          <td style="font-weight: 600;">${sharpe.toFixed(2)}</td>
+          <td>${winRate.toFixed(1)}%</td>
+          <td>${totalTrades}</td>
+          <td>
+            <a href="${tearsheetUrl}" target="_blank" class="glass-btn" style="padding: 4px 10px; font-size: 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+              📊 View Tearsheet
+            </a>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rowsHtml;
+  } catch (e) {
+    console.error("Error loading backtest summary:", e);
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--accent-red); padding: 20px;">Failed to load backtest results (${sanitize(e.message)}). Please ensure backend is running on port 8001.</td></tr>`;
+  }
+};
+
+// ── Nifty 200 Momentum 30 Tab ─────────────────────────────────────────────────
+
+let _momentum30Loaded = false;
+
+window.loadMomentum30 = async function(force = false) {
+  const tbody = document.getElementById("momentum30TableBody");
+  const lastUpdatedEl = document.getElementById("momentum30LastUpdated");
+  if (!tbody) return;
+
+  if (!force && _momentum30Loaded) return;
+
+  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;"><div class="pulse-loader">Fetching live data for 30 stocks...</div></td></tr>`;
+
+  try {
+    const apiKey = window.SESSION_TOKEN || "";
+    const url = `${window.API_BASE}/api/screener/momentum30${force ? "?force=true" : ""}`;
+    const res = await fetchWithTimeout(url, { headers: { "X-API-Key": apiKey } }, 60000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const stocks = data.stocks || [];
+
+    if (lastUpdatedEl && data.last_updated) {
+      const srcBadge = data.source && data.source.includes("NSE")
+        ? `<span style="background:#00e5ff22;color:#00e5ff;border-radius:4px;padding:1px 6px;font-size:0.72rem;">🟢 NSE Live</span>`
+        : `<span style="background:#ff910022;color:#ff9100;border-radius:4px;padding:1px 6px;font-size:0.72rem;">🟡 yfinance</span>`;
+      lastUpdatedEl.innerHTML = `${srcBadge} &nbsp;Updated: ${data.last_updated} &nbsp;·&nbsp; ${data.fetched}/${data.total} stocks`;
+    }
+
+    if (stocks.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px;">No data returned. Check backend logs.</td></tr>`;
+      return;
+    }
+
+    const SECTOR_COLORS = {
+      "Capital Goods":      "#00e5ff",
+      "Power":              "#ff9100",
+      "Financial Services": "#a78bfa",
+      "Automobiles":        "#34d399",
+      "Healthcare":         "#f472b6",
+      "Metals & Mining":    "#fbbf24",
+      "Chemicals":          "#60a5fa",
+      "Telecom":            "#94a3b8",
+    };
+
+    let html = "";
+    stocks.forEach((s, idx) => {
+      const isGain = s.change_pct >= 0;
+      const changeClass = isGain ? "text-green" : "text-red";
+      const arrow = isGain ? "\u25b2" : "\u25bc";
+      const sign = isGain ? "+" : "";
+      const rankStyle = idx === 0
+        ? "background: rgba(255,193,7,0.2); color: #ffd700; border-radius: 4px; padding: 2px 6px; font-weight:700;"
+        : "color: var(--text-muted); font-size: 0.85rem;";
+      const sectorColor = SECTOR_COLORS[s.sector] || "var(--text-muted)";
+
+      html += `
+        <tr>
+          <td><span style="${rankStyle}">${s.rank}</span></td>
+          <td style="font-weight: 700; font-family: 'JetBrains Mono', monospace; color: white; letter-spacing: 0.03em;">${sanitize(s.symbol)}</td>
+          <td style="color: var(--text-muted); font-size: 0.88rem;">${sanitize(s.name)}</td>
+          <td><span style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: ${sectorColor}22; color: ${sectorColor}; white-space:nowrap;">${sanitize(s.sector)}</span></td>
+          <td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600;">\u20b9${Number(s.price).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+          <td class="${changeClass}" style="text-align: right; font-family: 'JetBrains Mono', monospace;">${sign}\u20b9${Math.abs(s.change_abs).toFixed(2)}</td>
+          <td class="${changeClass}" style="text-align: right; font-weight: 700; font-family: 'JetBrains Mono', monospace;">${arrow} ${sign}${s.change_pct.toFixed(2)}%</td>
+          <td style="text-align: center;">
+            <button class="glass-btn" onclick="loadStockDashboard('${sanitize(s.symbol)}')"
+              style="padding: 4px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
+              \ud83d\udcc8 Chart
+            </button>
+          </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+    _momentum30Loaded = true;
+  } catch (e) {
+    console.error("Momentum 30 fetch error:", e);
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: var(--accent-red); padding:20px;">Failed to load data: ${sanitize(e.message)}</td></tr>`;
+  }
+};
+
+// ── Sectoral Heat Map (StockeZee-Style) Controller ───────────────────────────
+let _currentHeatmapTimeframe = 'Day';
+let _currentHeatmapView = 'heatmap';
+let _sectorHeatmapData = null;
+let _sectorBarChartInstance = null;
+
+window.setSectorHeatmapTimeframe = function(tf) {
+  _currentHeatmapTimeframe = tf;
+  document.querySelectorAll('.sh-time-btn').forEach(btn => {
+    if (btn.textContent.trim() === tf) btn.classList.add('active');
+    else btn.classList.remove('active');
+  });
+  loadSectorHeatmap(tf, false);
+};
+
+window.setSectorHeatmapView = function(view) {
+  _currentHeatmapView = view;
+  const btnHeatmap = document.getElementById('btnViewHeatmap');
+  const btnBarchart = document.getElementById('btnViewBarchart');
+  const grid = document.getElementById('sectorHeatmapGrid');
+  const chartWrap = document.getElementById('sectorBarChartContainer');
+
+  if (view === 'heatmap') {
+    if (btnHeatmap) btnHeatmap.classList.add('active');
+    if (btnBarchart) btnBarchart.classList.remove('active');
+    if (grid) grid.style.display = 'grid';
+    if (chartWrap) chartWrap.style.display = 'none';
+  } else {
+    if (btnHeatmap) btnHeatmap.classList.remove('active');
+    if (btnBarchart) btnBarchart.classList.add('active');
+    if (grid) grid.style.display = 'none';
+    if (chartWrap) chartWrap.style.display = 'flex';
+    if (_sectorHeatmapData && _sectorHeatmapData.sectors) {
+      renderSectorBarChart(_sectorHeatmapData.sectors);
+    }
+  }
+};
+
+window.createSvgSparkline = function(points, isBullish) {
+  if (!points || points.length < 2) {
+    return `<svg viewBox="0 0 200 55" preserveAspectRatio="none"><line x1="0" y1="27" x2="200" y2="27" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/></svg>`;
+  }
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = (max - min) === 0 ? 1 : (max - min);
+  const w = 200;
+  const h = 55;
+  const pad = 5;
+
+  const coords = points.map((p, idx) => {
+    const x = ((idx / (points.length - 1)) * w).toFixed(1);
+    const y = (h - pad - ((p - min) / range) * (h - pad * 2)).toFixed(1);
+    return [x, y];
+  });
+
+  const linePath = 'M ' + coords.map(c => `${c[0]},${c[1]}`).join(' L ');
+  const areaPath = linePath + ` L ${w},${h} L 0,${h} Z`;
+
+  const strokeColor = '#ffffff';
+  const fillColor = isBullish ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 23, 68, 0.22)';
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <path d="${areaPath}" fill="${fillColor}" />
+      <path d="${linePath}" fill="none" stroke="${strokeColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  `;
+};
+
+window.loadSectorHeatmap = async function(timeframe = null, force = false) {
+  if (timeframe) _currentHeatmapTimeframe = timeframe;
+  const tf = _currentHeatmapTimeframe || 'Day';
+  const loader = document.getElementById('sectorHeatmapLoader');
+  const grid = document.getElementById('sectorHeatmapGrid');
+  const updatedEl = document.getElementById('sectorHeatmapLastUpdated');
+
+  if (loader) loader.style.display = 'block';
+  if (grid) grid.style.opacity = '0.35';
+
+  try {
+    const apiKey = window.SESSION_TOKEN || "";
+    const forceParam = force ? "&force=true" : "";
+    const url = `${window.API_BASE}/api/sectors/heatmap?timeframe=${tf}${forceParam}&v=${new Date().getTime()}`;
+    const res = await fetchWithTimeout(url, { headers: { "X-API-Key": apiKey } }, 35000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _sectorHeatmapData = data;
+
+    if (updatedEl && data.last_updated) {
+      updatedEl.innerHTML = `<span style="background:rgba(0,229,255,0.12);color:var(--accent-cyan);padding:2px 8px;border-radius:4px;font-size:0.75rem;">🟢 Live NSE Quotes</span> &nbsp;Updated: ${data.last_updated} &nbsp;·&nbsp; ${data.fetched}/${data.total} sectors active &nbsp;·&nbsp; Timeframe: <strong>${tf}</strong>`;
+    }
+
+    renderSectorHeatmapGrid(data.sectors || []);
+
+    if (_currentHeatmapView === 'barchart') {
+      renderSectorBarChart(data.sectors || []);
+    }
+  } catch (err) {
+    console.error("Sector Heatmap error:", err);
+    if (grid) {
+      grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--accent-red); padding: 30px;">Failed to load sector heatmap: ${sanitize(err.message)}</div>`;
+    }
+  } finally {
+    if (loader) loader.style.display = 'none';
+    if (grid) grid.style.opacity = '1';
+  }
+};
+
+window.renderSectorHeatmapGrid = function(sectors) {
+  const grid = document.getElementById('sectorHeatmapGrid');
+  if (!grid) return;
+
+  if (!sectors || sectors.length === 0) {
+    grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 30px; color: var(--text-muted);">No sector data available.</div>`;
+    return;
+  }
+
+  let html = '';
+  sectors.forEach(s => {
+    const isBullish = s.change_pct >= 0;
+    const sign = isBullish ? '+' : '';
+    const cardClass = isBullish ? 'bullish' : 'bearish';
+    const sparkSvg = createSvgSparkline(s.sparkline, isBullish);
+    const ltpFormatted = Number(s.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    html += `
+      <div class="sector-card ${cardClass}" onclick="handleSectorCardClick('${sanitize(s.symbol)}', '${sanitize(s.raw_symbol)}')">
+        <div class="sector-card-header">
+          <span class="sector-card-title" title="${sanitize(s.name)}">${sanitize(s.name)}</span>
+          <span class="sector-card-pct">${sign}${s.change_pct.toFixed(2)}%</span>
+        </div>
+        <div class="sector-card-sparkline">
+          ${sparkSvg}
+        </div>
+        <div class="sector-card-footer">
+          <span class="sector-card-ltp-label">LTP</span>
+          <span class="sector-card-ltp-val">₹${ltpFormatted}</span>
+        </div>
+      </div>
+    `;
+  });
+
+  grid.innerHTML = html;
+};
+
+window.handleSectorCardClick = function(symbol, rawSymbol) {
+  console.log("Sector card clicked:", symbol, rawSymbol);
+  const clean = symbol.replace('^', '');
+  window.open(`https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(clean)}`, '_blank');
+};
+
+window.renderSectorBarChart = function(sectors) {
+  const canvas = document.getElementById('sectorBarChartCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  if (_sectorBarChartInstance) {
+    _sectorBarChartInstance.destroy();
+  }
+
+  // Sort sectors ascending for horizontal bar chart (so top gainers display at the top)
+  const sorted = [...sectors].sort((a, b) => a.change_pct - b.change_pct);
+  const labels = sorted.map(s => s.name);
+  const dataValues = sorted.map(s => s.change_pct);
+  const bgColors = sorted.map(s => s.change_pct >= 0 ? 'rgba(0, 230, 118, 0.85)' : 'rgba(255, 23, 68, 0.85)');
+  const borderColors = sorted.map(s => s.change_pct >= 0 ? '#00e676' : '#ff1744');
+
+  _sectorBarChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '% Change',
+        data: dataValues,
+        backgroundColor: bgColors,
+        borderColor: borderColors,
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const item = sorted[context.dataIndex];
+              const sign = item.change_pct >= 0 ? '+' : '';
+              return ` ${item.name}: ${sign}${item.change_pct.toFixed(2)}% (LTP: ₹${Number(item.price).toLocaleString('en-IN')})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.06)' },
+          ticks: {
+            color: 'rgba(255, 255, 255, 0.7)',
+            callback: (v) => `${v > 0 ? '+' : ''}${v}%`
+          }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: '#ffffff', font: { family: 'Outfit', size: 12, weight: '500' } }
+        }
+      }
+    }
+  });
+};
+

@@ -84,12 +84,22 @@
             <button class="cat-btn" onclick="changeMomentumCategory('midcap150')">Midcap 150</button>
             <button class="cat-btn" onclick="changeMomentumCategory('smallcap250')">Smallcap 250</button>
             <button class="cat-btn" onclick="changeMomentumCategory('microcap250')">Microcap 250</button>
+            <button class="cat-btn" onclick="changeMomentumCategory('sectors')">Sectors</button>
           </div>
+        </div>
+        
+        <div class="dashboard-tabs" style="margin-top: 20px; display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px;">
+          <button id="tabBtnOverview" class="tab-nav-btn active" onclick="switchDashboardTab('overview')">Overview &amp; Scanners</button>
+          <button id="tabBtnSectorHeatmap" class="tab-nav-btn" onclick="switchDashboardTab('sectorHeatmap')">🗺️ Sector Heat Map</button>
+          <button id="tabBtnRrg" class="tab-nav-btn" onclick="switchDashboardTab('rrg')">Relative Rotation Graph (RRG)</button>
+          <button id="tabBtnBacktest" class="tab-nav-btn" onclick="switchDashboardTab('backtest')">🧪 Backtest &amp; Strategy Lab</button>
+          <button id="tabBtnMomentum30" class="tab-nav-btn" onclick="switchDashboardTab('momentum30')">📈 Nifty 200 Momentum 30</button>
         </div>
       </div>
 
-      <!-- Major Indices Row -->
-      <div class="market-overview-row" id="indicesRow">
+      <div id="overviewTabContent" style="display: flex; flex-direction: column; width: 100%;">
+        <!-- Major Indices Row -->
+        <div class="market-overview-row" id="indicesRow">
         <!-- Injected via JS -->
         <div class="pulse-loader">Scanning Markets...</div>
       </div>
@@ -114,6 +124,15 @@
               <thead><tr><th>Symbol</th><th>Price</th><th>Change</th></tr></thead>
               <tbody id="losersTableBody"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Sectoral Distribution -->
+        <div class="glass-panel dynamic-card" id="sectorCard" style="display: flex; flex-direction: column;">
+          <h2 class="card-title text-cyan" style="color: var(--accent-cyan);">Sectoral Distribution</h2>
+          <p class="ep-subtitle" style="margin: 3px 0 10px 0;">Weightage based on stock count in selected category</p>
+          <div class="minimal-table-container" id="sectorDistributionBody" style="display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; padding-right: 5px;">
+            <div class="pulse-loader">Loading sectors...</div>
           </div>
         </div>
       </div>
@@ -263,6 +282,191 @@
           </div>
         </div>
       </div>
+      </div> <!-- END OVERVIEW TAB CONTENT -->
+
+      <!-- SECTOR HEAT MAP TAB CONTENT -->
+      <div id="sectorHeatmapTabContent" class="tab-content" style="display: none; flex-direction: column; width: 100%;">
+        <div class="glass-panel dynamic-card" style="padding: 22px; display: flex; flex-direction: column; background: rgba(14, 18, 27, 0.7); border: 1px solid rgba(255,255,255,0.08);">
+          
+          <!-- Heatmap Top Bar -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 15px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h2 class="card-title text-cyan" style="margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: 0.02em;">Visualization</h2>
+                <span style="background: rgba(0, 229, 255, 0.15); color: var(--accent-cyan); font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; font-weight: 600;">Sectoral Heat Map</span>
+              </div>
+              <p class="ep-subtitle" style="margin: 4px 0 0 0; color: var(--text-muted);">Intraday &amp; historical price trajectory for all 21 NSE Sectoral &amp; Thematic Indices</p>
+            </div>
+
+            <!-- Timeframe & View Mode Controls -->
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <!-- Timeframe Selector -->
+              <div class="sector-timeframe-group" style="display: flex; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 3px; border: 1px solid rgba(255,255,255,0.08);">
+                <button class="sh-time-btn active" onclick="setSectorHeatmapTimeframe('Day')">Day</button>
+                <button class="sh-time-btn" onclick="setSectorHeatmapTimeframe('1W')">1W</button>
+                <button class="sh-time-btn" onclick="setSectorHeatmapTimeframe('1M')">1M</button>
+                <button class="sh-time-btn" onclick="setSectorHeatmapTimeframe('3M')">3M</button>
+                <button class="sh-time-btn" onclick="setSectorHeatmapTimeframe('6M')">6M</button>
+                <button class="sh-time-btn" onclick="setSectorHeatmapTimeframe('1Y')">1Y</button>
+              </div>
+
+              <!-- View Switcher -->
+              <div class="sector-view-group" style="display: flex; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 3px; border: 1px solid rgba(255,255,255,0.08);">
+                <button id="btnViewHeatmap" class="sh-view-btn active" onclick="setSectorHeatmapView('heatmap')">
+                  🗺️ Heat Map
+                </button>
+                <button id="btnViewBarchart" class="sh-view-btn" onclick="setSectorHeatmapView('barchart')">
+                  📊 Bar Chart
+                </button>
+              </div>
+
+              <button class="glass-btn" onclick="loadSectorHeatmap(null, true)" style="padding: 6px 14px; font-size: 0.85rem; display: flex; align-items: center; gap: 5px;">
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+
+          <div id="sectorHeatmapLastUpdated" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;"></div>
+
+          <div id="sectorHeatmapLoader" class="pulse-loader" style="display: none; margin: 40px auto;">Fetching live sector trajectories...</div>
+
+          <!-- Card Grid View -->
+          <div id="sectorHeatmapGrid" class="sector-cards-grid"></div>
+
+          <!-- Bar Chart View -->
+          <div id="sectorBarChartContainer" style="display: none; flex-direction: column; width: 100%; min-height: 480px; position: relative; padding: 10px;">
+            <canvas id="sectorBarChartCanvas"></canvas>
+          </div>
+
+        </div>
+      </div> <!-- END SECTOR HEAT MAP TAB CONTENT -->
+
+      <!-- RRG Tab Content -->
+      <div id="rrgTabContent" class="tab-content" style="display: none; flex-direction: column; width: 100%;">
+        <div class="glass-panel dynamic-card rrg-card" style="padding: 20px; display: flex; flex-direction: column; position: relative;">
+          <div class="rrg-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+            <div>
+              <h2 class="card-title text-cyan" style="margin: 0;">Relative Rotation Graph (RRG)</h2>
+              <p class="ep-subtitle" style="margin: 5px 0 0 0;">Visualizes stock strength and momentum relative to NIFTY 50 Index (Center is 100, 100)</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85rem; color: var(--text-muted); cursor: pointer; margin-right: 15px;">
+                <input type="checkbox" id="rrgShowAllLabels" onchange="if(window.rrgChartInstance) window.rrgChartInstance.update();" style="cursor: pointer; accent-color: var(--accent-cyan);">
+                Show All Labels
+              </label>
+              <span style="font-size: 0.85rem; color: var(--text-muted);">RS Window:</span>
+              <input type="number" id="rrgRsWindow" class="glass-input" value="10" min="5" max="30" style="width: 60px; padding: 5px; text-align: center; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+              <span style="font-size: 0.85rem; color: var(--text-muted);">Mom Window:</span>
+              <input type="number" id="rrgMomWindow" class="glass-input" value="4" min="2" max="15" style="width: 60px; padding: 5px; text-align: center; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: white;">
+              <button class="glass-btn" onclick="triggerRrgScan(true)" style="padding: 6px 12px; font-size: 0.85rem;">🔄 Recalculate</button>
+            </div>
+          </div>
+          
+          <div id="rrgLoader" class="pulse-loader" style="display: none; margin: 50px auto;">Computing relative rotation coordinates...</div>
+          
+          <div class="rrg-chart-container" style="position: relative; width: 100%; height: 500px; max-height: 80vh; background: rgba(0,0,0,0.15); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); padding: 10px;">
+            <canvas id="rrgChart"></canvas>
+          </div>
+        </div>
+
+        <div class="market-tables-grid" style="margin-top: 20px;">
+          <!-- Quadrant Summary Lists -->
+          <div class="glass-panel dynamic-card">
+            <h3 class="card-title text-green">Leading (Top-Right)</h3>
+            <p class="ep-subtitle">Outperforming benchmark with positive momentum</p>
+            <div id="rrgLeadingList" class="rrg-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
+          </div>
+          <div class="glass-panel dynamic-card">
+            <h3 class="card-title text-cyan">Improving (Top-Left)</h3>
+            <p class="ep-subtitle">Underperforming benchmark but gaining momentum</p>
+            <div id="rrgImprovingList" class="rrg-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
+          </div>
+          <div class="glass-panel dynamic-card">
+            <h3 class="card-title text-orange" style="color: #ff9100;">Weakening (Bottom-Right)</h3>
+            <p class="ep-subtitle">Outperforming benchmark but losing momentum</p>
+            <div id="rrgWeakeningList" class="rrg-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
+          </div>
+          <div class="glass-panel dynamic-card">
+            <h3 class="card-title text-red">Lagging (Bottom-Left)</h3>
+            <p class="ep-subtitle">Underperforming benchmark with negative momentum</p>
+            <div id="rrgLaggingList" class="rrg-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
+          </div>
+        </div>
+      </div> <!-- END RRG TAB CONTENT -->
+
+      <!-- BACKTEST TAB CONTENT -->
+      <div id="backtestTabContent" class="tab-content" style="display: none; flex-direction: column; width: 100%;">
+        <div class="glass-panel dynamic-card" style="padding: 20px; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 15px;">
+            <div>
+              <h2 class="card-title text-cyan" style="margin: 0;">🧪 Backtest & Quant Strategy Lab</h2>
+              <p class="ep-subtitle" style="margin: 5px 0 0 0;">VectorBT portfolio simulation with 0.15% NSE fee/tax modeling & QuantStats HTML performance tearsheets</p>
+            </div>
+            <button class="glass-btn" onclick="loadBacktestSummary(true)" style="padding: 6px 14px; font-size: 0.85rem;">🔄 Refresh Backtests</button>
+          </div>
+
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="backtestTable">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Strategy</th>
+                  <th>Total Return</th>
+                  <th>Buy & Hold</th>
+                  <th>CAGR</th>
+                  <th>Max Drawdown</th>
+                  <th>Sharpe Ratio</th>
+                  <th>Win Rate</th>
+                  <th>Trades</th>
+                  <th>Tearsheet Report</th>
+                </tr>
+              </thead>
+              <tbody id="backtestTableBody">
+                <tr><td colspan="10" style="text-align:center;"><div class="pulse-loader">Loading strategy backtest results...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div> <!-- END BACKTEST TAB CONTENT -->
+
+      <!-- MOMENTUM 30 TAB CONTENT -->
+      <div id="momentum30TabContent" class="tab-content" style="display: none; flex-direction: column; width: 100%;">
+        <div class="glass-panel dynamic-card" style="padding: 20px; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 15px;">
+            <div>
+              <h2 class="card-title" style="margin: 0; color: var(--accent-cyan);">📈 Nifty 200 Momentum 30</h2>
+              <p class="ep-subtitle" style="margin: 5px 0 0 0;">Official NSE index — Top 30 momentum stocks from the Nifty 200 universe &nbsp;·&nbsp; Sorted by today's % change &nbsp;·&nbsp; Live prices via yfinance</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span id="momentum30LastUpdated" style="font-size: 0.78rem; color: var(--text-muted);"></span>
+              <button class="glass-btn" onclick="loadMomentum30(true)" style="padding: 6px 14px; font-size: 0.85rem;">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <div class="minimal-table-container">
+            <table class="market-table premium-table" id="momentum30Table">
+              <thead>
+                <tr>
+                  <th style="width: 40px;">#</th>
+                  <th>Symbol</th>
+                  <th>Company</th>
+                  <th>Sector</th>
+                  <th style="text-align: right;">Price (₹)</th>
+                  <th style="text-align: right;">Change (₹)</th>
+                  <th style="text-align: right;">Change (%)</th>
+                  <th style="text-align: center;">Chart</th>
+                </tr>
+              </thead>
+              <tbody id="momentum30TableBody">
+                <tr><td colspan="8" style="text-align:center;">
+                  <div class="pulse-loader">Loading Nifty 200 Momentum 30 data...</div>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div> <!-- END MOMENTUM 30 TAB CONTENT -->
+
     </div> <!-- END INITIAL DASHBOARD -->
 
     <!-- INDIVIDUAL STOCK DETAIL DASHBOARD -->
@@ -470,7 +674,7 @@
   </div>
 
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>
 

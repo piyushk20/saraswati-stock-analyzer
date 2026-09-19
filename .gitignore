@@ -42,6 +42,10 @@ test_yf_options.py
 test_multi_rsi.py
 verify_*.py
 tmp_debug_nse.py
+test_jugaad*.py
+test_qs*.html
+graphify/
+graphify-out/
 market_overview_check.json
 debug_output.json
 *.json

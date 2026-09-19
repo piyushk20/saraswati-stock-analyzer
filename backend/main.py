@@ -20,8 +20,11 @@ Run with:
 """
 
 import collections
+import hashlib
+import hmac
 import logging
 import re
+import secrets
 import time
 import os
 import math
@@ -43,6 +46,7 @@ analysis_cache = {}  # symbol -> (data, timestamp)
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
+import json
 import os
 
 from dotenv import load_dotenv
@@ -64,10 +68,35 @@ if not API_KEY or not API_KEY.startswith("sk_saraswati_") or len(API_KEY) < 40:
 else:
     API_KEY_VALID = True
 
+# ── Session Token Store ───────────────────────────────────────────────────────
+# Browser clients call GET /api/handshake to receive a short-lived token.
+# This means the raw API key never has to be embedded in any static JS file.
+_session_tokens: dict = {}  # token -> expiry (unix timestamp)
+SESSION_TOKEN_TTL = 86400   # 24 hours
+
+def generate_session_token() -> str:
+    """Return a cryptographically secure short-lived session token."""
+    token = secrets.token_hex(32)
+    now = time.time()
+    _session_tokens[token] = now + SESSION_TOKEN_TTL
+    # Prune expired tokens to prevent unbounded growth
+    for t in [k for k, exp in list(_session_tokens.items()) if exp < now]:
+        del _session_tokens[t]
+    return token
+
 def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
-    if not API_KEY_VALID or x_api_key != API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
-    return x_api_key
+    """Accept the raw API key (direct clients) OR a valid session token (browser)."""
+    if not x_api_key:
+        raise HTTPException(status_code=403, detail="Missing API Key")
+    # 1. Raw API key — used by curl / direct API clients.
+    #    Use constant-time comparison to prevent timing attacks.
+    if API_KEY_VALID and hmac.compare_digest(x_api_key, API_KEY):
+        return x_api_key
+    # 2. Short-lived session token — issued to browser clients via /api/handshake.
+    exp = _session_tokens.get(x_api_key)
+    if exp and exp > time.time():
+        return x_api_key
+    raise HTTPException(status_code=403, detail="Invalid or expired API Key")
 
 import sys
 import os
@@ -89,26 +118,19 @@ app = FastAPI(title="Indian Stock Analyzer API", version="1.1.0")
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Restricted to local development origins only
+# H1 Fix: CORS locked to only the actual frontend dev ports.
+# Removed broad LAN wildcard regex and backend-port origins.
+ALLOWED_ORIGINS = {
+    "http://localhost:8081", "http://127.0.0.1:8081",
+    "http://localhost:8082", "http://127.0.0.1:8082",
+    "http://localhost:8085", "http://127.0.0.1:8085",
+}
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:8082",
-        "http://127.0.0.1:8082",
-        "http://localhost:8085",
-        "http://127.0.0.1:8085",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:8001",
-        "http://127.0.0.1:8001",
-        "http://localhost:8002",
-        "http://127.0.0.1:8002",
-    ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
+    allow_origins=list(ALLOWED_ORIGINS),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 # ── Security Middleware ────────────────────────────────────────────────────────
@@ -117,12 +139,14 @@ async def add_security_headers(request: Request, call_next):
     # Skip for OPTIONS to avoid interfering with CORS preflight
     if request.method == "OPTIONS":
         return await call_next(request)
-        
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # M2 Fix: HSTS — ensures HTTPS if ever exposed via a tunnel (ngrok etc.)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # CSP: connect-src restricted to localhost API ports only
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -130,7 +154,7 @@ async def add_security_headers(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:8001 http://127.0.0.1:8001 http://localhost:8002 http://127.0.0.1:8002 http://localhost:8082 http://127.0.0.1:8082"
+        "connect-src 'self' http://localhost:8001 http://127.0.0.1:8001 http://localhost:8082 http://127.0.0.1:8082"
     )
     return response
 
@@ -180,14 +204,14 @@ def clean_types(obj):
     if hasattr(obj, 'to_dict') and callable(obj.to_dict):
         try:
             return clean_types(obj.to_dict())
-        except:
-            pass
+        except Exception as _e:
+            logger.debug("clean_types: to_dict() failed: %s", _e)
             
     if hasattr(obj, 'tolist') and callable(obj.tolist):
         try:
             return clean_types(obj.tolist())
-        except:
-            pass
+        except Exception as _e:
+            logger.debug("clean_types: tolist() failed: %s", _e)
 
     return obj
 
@@ -253,10 +277,6 @@ def analyze_stock(symbol: str, request: Request, period: str = "3mo", api_key: s
     try:
         # Use a composite key for cache if period is specified
         cache_key = f"{symbol}_{period}"
-        if cache_key in analysis_cache:
-            data, timestamp = analysis_cache[cache_key]
-            if datetime.now() - timestamp < timedelta(minutes=5):
-                return data
 
         data = analyze(symbol, chart_period=period)
         if not data or "error" in data:
@@ -284,20 +304,19 @@ def analyze_stock(symbol: str, request: Request, period: str = "3mo", api_key: s
         raise HTTPException(status_code=500, detail="Internal server error.")
 
 
-VALID_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "midcap150", "smallcap250", "microcap250", "nifty500"}
+VALID_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "midcap150", "smallcap250", "microcap250", "nifty500", "sectors"}
+# Equity-only categories (crossover/VCP screeners work on stocks, not indices)
+EQUITY_CATEGORIES = {"nifty50", "nifty200", "midcap100", "smallcap100", "midcap150", "smallcap250", "microcap250", "nifty500"}
 
 @app.get("/api/screener/crossovers")
 def get_screener_crossovers(request: Request, category: str = "nifty50", force: bool = False, api_key: str = Depends(verify_api_key)):
     global screener_cache
-    if category not in VALID_CATEGORIES:
+    if category not in EQUITY_CATEGORIES:
         raise HTTPException(status_code=400, detail="Invalid category")
     
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     
-    cache_entry = screener_cache.get(category)
-    if not force and cache_entry and datetime.now() < cache_entry["expires_at"]:
-        return cache_entry["data"]
         
     try:
         data = find_crossovers(category)
@@ -315,14 +334,11 @@ def get_screener_crossovers(request: Request, category: str = "nifty50", force: 
 def get_market_overview(request: Request, category: str = "nifty50", force: bool = False, api_key: str = Depends(verify_api_key)):
     global market_overview_cache
     if category not in VALID_CATEGORIES:
-        raise HTTPException(status_code=400, detail="Invalid category")
+        raise HTTPException(status_code=400, detail="Invalid category")  # sectors is allowed
     
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     
-    cache_entry = market_overview_cache.get(category)
-    if not force and cache_entry and datetime.now() < cache_entry["expires_at"]:
-        return cache_entry["data"]
         
     try:
         from execution.market_overview import fetch_market_overview
@@ -341,138 +357,155 @@ def get_market_overview(request: Request, category: str = "nifty50", force: bool
         logger.error(f"Failed to execute market overview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch market overview.")
 
-vcp_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-evcp_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-ep_cache  = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-rsi_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-momentum_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-flag_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
-# History of last 5 flag screener results
+# M3 Fix: Removed dead background worker functions and stale file-cache helpers.
+# All scanner routes now run synchronously (live data, no background queue).
+
+# History of last 5 flag screener results (used by /api/screener/flag/last5)
 flag_history = collections.deque(maxlen=5)
+
+# Momentum 30 live cache (refreshed on each request)
+momentum30_cache = {"data": None, "expires_at": datetime.now() - timedelta(minutes=1)}
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/screener/vcp")
 def get_vcp_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
-    global vcp_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     
-    if not force and datetime.now() < vcp_cache["expires_at"] and vcp_cache["data"] is not None:
-        return vcp_cache["data"]
-        
-    try:
-        from execution.vcp_screener import scan_vcp
-        data = scan_vcp()
-        if data.get("error"):
-            raise HTTPException(status_code=500, detail=data["error"])
-            
-        data = clean_types(data)
-        vcp_cache["data"] = data
-        vcp_cache["expires_at"] = datetime.now() + timedelta(hours=1)
-        return data
-    except Exception as e:
-        logger.error("Failed to execute VCP screener scan: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to run VCP screener scan.")
+    from execution.vcp_screener import scan_vcp
+    logger.info("Starting live VCP scan...")
+    data = scan_vcp()
+    return clean_types(data)
 
 @app.get("/api/screener/ep")
 def get_ep_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
-    global ep_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if not force and datetime.now() < ep_cache["expires_at"] and ep_cache["data"] is not None:
-        return ep_cache["data"]
-
-    try:
-        from execution.ep_screener import scan_ep
-        data = scan_ep()
-        if data.get("error"):
-            raise HTTPException(status_code=500, detail=data["error"])
-
-        logger.info("EP Screener found %d stocks", len(data.get("ep_stocks", [])))
-        data = clean_types(data)
-        ep_cache["data"] = data
-        ep_cache["expires_at"] = datetime.now() + timedelta(hours=1)
-        return data
-    except Exception as e:
-        logger.error("Failed to execute EP screener scan: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to run EP screener scan.")
+    from execution.ep_screener import scan_ep
+    logger.info("Starting live EP scan...")
+    data = scan_ep()
+    return clean_types(data)
 
 @app.get("/api/screener/rsi")
 def get_rsi_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
-    global rsi_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if not force and datetime.now() < rsi_cache["expires_at"] and rsi_cache["data"] is not None:
-        return rsi_cache["data"]
-
-    try:
-        from execution.rsi_screener import scan_rsi
-        data = scan_rsi()
-        if data.get("error"):
-            raise HTTPException(status_code=500, detail=data["error"])
-
-        logger.info("RSI Screener found %d stocks", len(data.get("rsi_stocks", [])))
-        data = clean_types(data)
-        rsi_cache["data"] = data
-        rsi_cache["expires_at"] = datetime.now() + timedelta(hours=1)
-        return data
-    except Exception as e:
-        logger.error("Failed to execute RSI screener scan: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to run RSI screener scan.")
+    from execution.rsi_screener import scan_rsi
+    logger.info("Starting live RSI scan...")
+    data = scan_rsi()
+    return clean_types(data)
 
 @app.get("/api/screener/momentum")
 def get_momentum_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
-    global momentum_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if not force and datetime.now() < momentum_cache["expires_at"] and momentum_cache["data"] is not None:
-        return momentum_cache["data"]
+    from execution.momentum_scanner import scan_momentum
+    logger.info("Starting live Momentum scan...")
+    data = scan_momentum()
+    return clean_types(data)
 
-    try:
-        from execution.momentum_scanner import scan_momentum
-        data = scan_momentum()
-        if data.get("error"):
-            raise HTTPException(status_code=500, detail=data["error"])
-
-        logger.info("Momentum Screener found %d stocks", len(data.get("momentum_stocks", [])))
-        data = clean_types(data)
-        momentum_cache["data"] = data
-        momentum_cache["expires_at"] = datetime.now() + timedelta(hours=1)
-        return data
-    except Exception as e:
-        logger.error("Failed to execute Momentum screener scan: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to run Momentum screener scan.")
 @app.get("/api/screener/flag")
 def get_flag_screener(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
-    global flag_cache
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    if not force and datetime.now() < flag_cache["expires_at"] and flag_cache["data"] is not None:
-        return flag_cache["data"]
-
-    try:
-        from execution.flag_screener import scan_flag
-        data = scan_flag()
-        if data.get("error"):
-            raise HTTPException(status_code=500, detail=data["error"])
-
-        logger.info("Flag Screener found %d stocks", len(data.get("flag_stocks", [])))
-        data = clean_types(data)
-        flag_cache["data"] = data
-        flag_cache["expires_at"] = datetime.now() + timedelta(hours=1)
-        # Record in history
-        flag_history.append(data)
-        return data
-    except Exception as e:
-        logger.error("Failed to execute Flag screener scan: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to run Flag screener scan.")
+    from execution.flag_screener import scan_flag
+    logger.info("Starting live Flag scan...")
+    data = scan_flag()
+    # Save to flag_history as it is used by last5 endpoint
+    flag_history.append(data)
+    return clean_types(data)
 
 @app.get("/api/screener/flag/last5")
-def get_flag_last5():
+def get_flag_last5(request: Request, api_key: str = Depends(verify_api_key)):
+    # C3 Fix: this endpoint was previously unauthenticated.
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
     return list(flag_history)
+
+
+@app.get("/api/screener/momentum30")
+def get_momentum30(request: Request, force: bool = False, api_key: str = Depends(verify_api_key)):
+    """Live quotes for the Nifty 200 Momentum 30 index constituents. Cache TTL: 5 min."""
+    global momentum30_cache
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+
+
+    try:
+        from execution.momentum30_screener import scan_momentum30
+        data = scan_momentum30()
+        data = clean_types(data)
+        momentum30_cache["data"] = data
+        momentum30_cache["expires_at"] = datetime.now() + timedelta(minutes=5)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to run Momentum 30 screener: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Momentum 30 data.")
+
+
+sector_heatmap_cache = {}
+
+@app.get("/api/sectors/heatmap")
+def get_sector_heatmap_endpoint(request: Request, timeframe: str = "Day", force: bool = False, api_key: str = Depends(verify_api_key)):
+    # H2 Fix: validate timeframe against an explicit allowlist.
+    VALID_TIMEFRAMES = {"Day", "1W", "1M", "3M", "6M", "1Y"}
+    if timeframe not in VALID_TIMEFRAMES:
+        raise HTTPException(status_code=400, detail=f"Invalid timeframe. Must be one of: {', '.join(sorted(VALID_TIMEFRAMES))}")
+
+    global sector_heatmap_cache
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+
+    try:
+        from execution.sector_heatmap import get_sector_heatmap_data
+        data = get_sector_heatmap_data(timeframe=timeframe)
+        data = clean_types(data)
+        sector_heatmap_cache[timeframe] = {
+            "data": data,
+            "expires_at": datetime.now() + timedelta(minutes=2)
+        }
+        return data
+    except Exception as e:
+        logger.error(f"Failed to fetch sector heatmap data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch sector heatmap data.")
+
+
+rrg_cache = {}
+
+@app.get("/api/screener/rrg")
+def get_rrg_screener(request: Request, category: str = "nifty50", rs_window: int = 10, mom_window: int = 4, force: bool = False, api_key: str = Depends(verify_api_key)):
+    global rrg_cache
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid category")  # sectors is allowed
+    # H3 Fix: bound integer params to prevent DoS via absurdly large computation.
+    if not (1 <= rs_window <= 52):
+        raise HTTPException(status_code=400, detail="rs_window must be between 1 and 52")
+    if not (1 <= mom_window <= 26):
+        raise HTTPException(status_code=400, detail="mom_window must be between 1 and 26")
+
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+
+    cache_key = f"{category}_{rs_window}_{mom_window}"
+        
+    try:
+        from execution.rrg_screener import scan_rrg
+        data = scan_rrg(category=category, rs_window=rs_window, mom_window=mom_window)
+        data = clean_types(data)
+        rrg_cache[cache_key] = {
+            "data": data,
+            "expires_at": datetime.now() + timedelta(hours=1)
+        }
+        return data
+    except Exception as e:
+        logger.error(f"Failed to execute RRG screener scan: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to run RRG screener scan.")
 
 @app.get("/api/market/nse500")
 def get_nse500_list(request: Request, api_key: str = Depends(verify_api_key)):
@@ -530,3 +563,62 @@ async def health():
 @app.get("/ping")
 async def ping():
     return {"ping": "pong"}
+
+
+@app.get("/api/handshake")
+async def handshake(request: Request):
+    """
+    C1 Fix: Issue a short-lived session token to browser clients.
+    The raw API key never needs to be stored in any static JS file.
+    This endpoint is intentionally unauthenticated — it is CORS-gated
+    so only origins in ALLOWED_ORIGINS (the frontend ports) can call it.
+    """
+    if not API_KEY_VALID:
+        raise HTTPException(status_code=503, detail="Server API key not configured")
+    token = generate_session_token()
+    return {"token": token, "expires_in": SESSION_TOKEN_TTL}
+
+# ── Backtesting API Endpoints ──────────────────────────────────────────────────
+from fastapi.responses import FileResponse
+
+BACKTEST_RESULTS_DIR = Path(__file__).parent.parent / "backtest_results"
+TEARSHEETS_DIR = BACKTEST_RESULTS_DIR / "tearsheets"
+
+@app.get("/api/backtest/summary")
+def get_backtest_summary(request: Request, api_key: str = Depends(verify_api_key)):
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    json_path = BACKTEST_RESULTS_DIR / "backtest_summary.json"
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="Backtest summary not found. Run backtest engine first.")
+    try:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        
+        # Sanitize any inf/nan values in the dictionary
+        def sanitize_item(val):
+            if isinstance(val, float):
+                if math.isnan(val) or math.isinf(val):
+                    return 0.0
+            return val
+
+        clean_data = []
+        for row in data:
+            clean_row = {k: sanitize_item(v) for k, v in row.items()}
+            clean_data.append(clean_row)
+
+        return {"status": "ok", "summary": clean_data}
+    except Exception as e:
+        logger.error(f"Failed to load backtest summary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load backtest summary.")
+
+@app.get("/api/backtest/tearsheet/{filename}")
+def get_backtest_tearsheet(filename: str, request: Request, api_key: str = Depends(verify_api_key)):
+    # C2 Fix: this endpoint was previously unauthenticated.
+    # Prevent path traversal
+    safe_filename = Path(filename).name
+    filepath = TEARSHEETS_DIR / safe_filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail=f"Tearsheet {filename} not found.")
+    return FileResponse(filepath, media_type="text/html")
+

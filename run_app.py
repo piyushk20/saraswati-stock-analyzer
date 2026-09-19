@@ -67,7 +67,15 @@ if __name__ == "__main__":
     
     try:
         while True:
-            time.sleep(1)
+            time.sleep(2)
+            # Check backend
+            if be_proc.poll() is not None:
+                print(f"Backend process terminated with code {be_proc.returncode}. Restarting backend...")
+                be_proc = start_backend()
+            # Check frontend
+            if fe_proc.poll() is not None:
+                print(f"Frontend process terminated with code {fe_proc.returncode}. Restarting frontend...")
+                fe_proc = start_frontend()
     except KeyboardInterrupt:
         print("\nStopping servers...")
         be_proc.terminate()

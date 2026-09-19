@@ -43,7 +43,7 @@ def cal_slope(arr):
 
 def filter_by_vcp_conditions(df):
     """Apply Mark Minervini's Trend Template & VCP logic."""
-    if len(df) < 200:
+    if len(df) < 252:
         df['Has_fulfilled'] = False
         return df[['Close', 'Has_fulfilled']]
         
@@ -69,8 +69,8 @@ def filter_by_vcp_conditions(df):
     c4 = (df['SMA_50'] > df['SMA_150']) & (df['SMA_150'] > df['SMA_200']) 
     # Condition 5: Price > 50MA
     c5 = (df['Close'] > df['SMA_50'])
-    # Condition 6: Price > 52-week low + 25%
-    c6 = (df['Close'] > df['52_week_low'] * 1.25) 
+    # Condition 6: Price > 52-week low + 30%
+    c6 = (df['Close'] > df['52_week_low'] * 1.30) 
     # Condition 7: Price within 25% of 52-week high
     c7 = (df['Close'] > df['52_week_high'] * 0.75) 
     

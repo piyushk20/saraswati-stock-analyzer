@@ -6,18 +6,19 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
-_yf_session = None
+import threading
+
+_yf_session_local = threading.local()
 
 def get_yf_session():
     """
-    Constructs and returns a shared curl_cffi requests Session configured with chrome impersonation.
+    Constructs and returns a thread-local curl_cffi requests Session configured with chrome impersonation.
     This mimics a real browser request, preventing Yahoo Finance from rate-limiting
-    our concurrent scanner runs.
+    our concurrent scraper runs while ensuring absolute thread-safety.
     """
-    global _yf_session
-    if _yf_session is None:
-        _yf_session = cffi_requests.Session(impersonate="chrome")
-    return _yf_session
+    if not hasattr(_yf_session_local, "session"):
+        _yf_session_local.session = cffi_requests.Session(impersonate="chrome")
+    return _yf_session_local.session
 
 
 def _parse_chart_response(data, symbol):
